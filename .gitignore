@@ -1,0 +1,26 @@
+# 本机配置与凭据
+.env
+.env.*
+!.env.example
+credentials.json
+*.pem
+*.key
+
+# 依赖与缓存
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+.cache/
+
+# 临时文件与 Office 锁文件
+tmp/
+temp/
+*.log
+~$*
+.DS_Store
+Thumbs.db
