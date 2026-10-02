@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <section id="authGate" class="auth-gate" aria-labelledby="authTitle">
+    <section id="authGate" class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <form id="loginForm" class="auth-panel">
         <span class="brand-mark auth-mark">场</span>
         <div class="eyebrow">校园活动协作空间</div>
@@ -34,13 +34,18 @@
           <span class="brand-copy"><strong>活动管控台</strong><small>校园项目空间</small></span>
         </a>
 
-        <div class="workspace-label">项目工作区</div>
+        <div class="workspace-label">个人空间</div>
         <nav class="primary-nav" aria-label="主导航">
+          <button class="nav-item" id="homeNav" data-home><span class="nav-icon">⌂</span>我的项目</button>
+          <div id="projectNavigation" class="hidden">
           <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>总览</button>
+          <button class="nav-item" data-view="lifecycle"><span class="nav-icon">↻</span>全周期管理</button>
           <button class="nav-item" data-view="tasks"><span class="nav-icon">☷</span>任务计划<span class="nav-count" id="taskCountNav">8</span></button>
           <button class="nav-item" data-view="resources"><span class="nav-icon">▦</span>人员与资源</button>
           <button class="nav-item" data-view="risks"><span class="nav-icon">△</span>风险预案<span class="nav-alert" id="riskCountNav">2</span></button>
+          <button class="nav-item" data-view="materials"><span class="nav-icon">▤</span>过程材料</button>
           <button class="nav-item" data-view="log"><span class="nav-icon">◷</span>变更记录</button>
+          </div>
         </nav>
 
         <div class="sidebar-bottom">
@@ -57,7 +62,7 @@
 
       <main class="main-area">
         <header class="topbar">
-          <div class="breadcrumb"><span>活动项目</span><span class="crumb-sep">/</span><select id="activitySelect" class="project-select" aria-label="切换演示活动"></select></div>
+          <div class="breadcrumb"><button id="homeBreadcrumb" class="breadcrumb-link">我的项目</button><span id="crumbSep" class="crumb-sep">/</span><select id="activitySelect" class="project-select project-only" aria-label="切换项目"></select></div>
           <div class="topbar-actions">
             <span class="saved-status"><i></i>已保存</span>
             <button class="icon-button" aria-label="通知" title="通知">♧<b class="notification-dot"></b></button>
@@ -66,6 +71,20 @@
         </header>
 
         <div class="content-wrap">
+          <section id="personalHome" class="personal-home hidden">
+            <div class="home-heading">
+            <div><div class="eyebrow">个人项目空间</div><h1>我的项目</h1><p>查看项目进度并管理活动工作区。</p></div>
+              <button id="createProjectBtn" class="button button-primary organizer-only"><span>＋</span> 创建项目</button>
+            </div>
+            <section class="home-metrics" aria-label="项目统计">
+              <div><span>项目总数</span><strong id="homeProjectCount">0</strong></div>
+              <div><span>进行中</span><strong id="homeActiveCount">0</strong></div>
+              <div><span>待处理风险</span><strong id="homeRiskCount">0</strong></div>
+            </section>
+            <div class="project-toolbar"><label class="project-search"><span aria-hidden="true">⌕</span><input id="projectSearch" type="search" placeholder="搜索项目名称或类别" aria-label="搜索项目" /></label><select id="projectFilter" aria-label="筛选项目"><option value="all">全部项目</option><option value="upcoming">即将举行</option><option value="custom">我创建的</option></select><span id="projectListCount"></span></div>
+            <div id="projectList" class="project-list"></div>
+          </section>
+          <div id="projectWorkspace" class="project-workspace">
           <section class="page-heading">
             <div>
               <div class="eyebrow" id="eventEyebrow">2026 · 校园活动</div>
@@ -73,11 +92,17 @@
               <p id="eventDescription">把筹备进度、现场安排和风险处理放在同一个工作区。</p>
             </div>
             <div class="heading-actions">
-              <button id="createEventBtn" class="button button-secondary organizer-only"><span>＋</span> 创建活动</button>
               <button id="simulateBtn" class="button button-warning"><span>⚡</span> 模拟场地取消</button>
               <button id="exportBtn" class="button button-primary"><span>⇧</span> 导出执行清单</button>
             </div>
           </section>
+
+          <nav class="lifecycle-steps" aria-label="活动生命周期阶段">
+            <button data-phase="plan"><span class="step-number">1</span><span><strong>前期策划</strong><small id="phaseCount-plan">0 项任务</small></span></button>
+            <button data-phase="prepare"><span class="step-number">2</span><span><strong>活动筹备</strong><small id="phaseCount-prepare">0 项任务</small></span></button>
+            <button data-phase="execute"><span class="step-number">3</span><span><strong>现场执行</strong><small id="phaseCount-execute">0 项任务</small></span></button>
+            <button data-phase="close"><span class="step-number">4</span><span><strong>活动收尾</strong><small id="phaseCount-close">0 项任务</small></span></button>
+          </nav>
 
           <div id="incidentBanner" class="incident-banner hidden" role="status">
             <span class="incident-symbol">!</span>
@@ -90,14 +115,17 @@
             <div class="metric"><span>筹备进度</span><strong id="progressValue">68<small>%</small></strong><div class="metric-track"><i id="progressBar" style="width:68%"></i></div><em>按任务完成情况估算</em></div>
             <div class="metric"><span>任务状态</span><strong id="taskMetric">8<small> / 12 已完成</small></strong><em class="metric-note" id="taskMetricNote">2 项进行中 · 2 项待开始</em></div>
             <div class="metric"><span>预算使用</span><strong id="budgetMetric">¥4,280<small> / 6,000</small></strong><div class="metric-track budget-track"><i id="budgetBar" style="width:71%"></i></div><em id="budgetRemaining">剩余 ¥1,720</em></div>
-            <div class="metric metric-risk"><span>待处理风险</span><strong id="riskCount">2<small> 项</small></strong><em><i class="risk-dot"></i>1 项高优先级</em></div>
+            <div class="metric metric-risk"><span>待处理风险</span><strong id="riskCount">2<small> 项</small></strong><em><i class="risk-dot"></i><span id="highRiskSummary">1 项高优先级</span></em></div>
           </section>
 
           <nav class="view-tabs" aria-label="项目视图">
             <button class="view-tab active" data-view="overview">项目总览</button>
+            <button class="view-tab" data-view="lifecycle">全周期</button>
             <button class="view-tab" data-view="tasks">任务计划 <span id="taskCountTab">8</span></button>
             <button class="view-tab" data-view="resources">资源安排</button>
             <button class="view-tab" data-view="risks">风险清单 <span class="tab-alert" id="riskCountTab">2</span></button>
+            <button class="view-tab" data-view="materials">过程材料</button>
+            <button class="view-tab" data-view="log">变更记录</button>
           </nav>
 
           <section class="view-panel" id="overviewView">
@@ -136,6 +164,16 @@
             </div>
           </section>
 
+          <section class="view-panel hidden" id="lifecycleView">
+            <div class="section-heading"><div><h2 id="phaseTitle">前期策划</h2><span id="phaseDescription"></span></div><button class="button button-primary" data-open-view="materials">查看过程材料 <span>→</span></button></div>
+            <div class="phase-summary" id="phaseSummary"></div>
+            <div class="lifecycle-grid">
+              <section class="lifecycle-column"><div class="panel-topline"><h3>阶段任务</h3><span id="phaseTaskProgress"></span></div><div class="phase-task-list" id="phaseTaskList"></div></section>
+              <section class="lifecycle-column"><div class="panel-topline"><h3>本阶段输出</h3><span>可继续编辑和导出</span></div><div class="phase-material-list" id="phaseMaterialList"></div></section>
+            </div>
+            <section class="phase-checklist-panel"><div class="panel-topline"><h3>阶段检查点</h3><span>完成后再进入下一阶段</span></div><div id="phaseChecklist" class="phase-checklist"></div></section>
+          </section>
+
           <section class="view-panel hidden" id="tasksView">
             <div class="section-heading"><div><h2>任务计划</h2><span id="taskViewSummary"></span></div><button class="button button-primary organizer-only" id="addTaskBtn">＋ 新建任务</button></div>
             <div class="filter-row"><button class="filter-chip active">全部 <span id="filterAll">8</span></button><button class="filter-chip">进行中 <span id="filterProgress">1</span></button><button class="filter-chip">待开始 <span id="filterTodo">1</span></button><button class="filter-chip">已完成 <span id="filterDone">6</span></button><div class="filter-spacer"></div><button class="select-button">按日期排序⌄</button></div>
@@ -149,8 +187,16 @@
           </section>
 
           <section class="view-panel hidden" id="risksView">
-            <div class="section-heading"><div><h2>风险清单</h2><span id="riskSummary"></span></div><button class="button button-primary">＋ 新增风险</button></div>
+            <div class="section-heading"><div><h2>全流程风险与应急预案</h2><span id="riskSummary"></span></div><button class="button button-secondary" id="exportRiskPlan">导出风险预案 <span>⇧</span></button></div>
+            <div class="risk-method-strip"><div><strong>识别范围</strong><span>策划 · 筹备 · 执行 · 收尾</span></div><div><strong>评估方式</strong><span>可能性 × 影响程度，分级配置应对</span></div><div><strong>响应链</strong><span>现场负责人 → 活动组织者 → 校方保障</span></div></div>
             <div class="risk-cards" id="riskCards"></div>
+          </section>
+
+          <section class="view-panel hidden" id="materialsView">
+            <div class="section-heading"><div><h2>过程材料库</h2><span>围绕活动阶段生成可编辑的工作底稿</span></div><button class="button button-primary" id="downloadAllMaterials">导出全部材料 <span>⇧</span></button></div>
+            <div class="materials-intro"><strong>材料按当前活动信息自动整理</strong><span>未提供的事实和数据会保留为「待补充」，编辑内容保存在当前浏览器。</span></div>
+            <section class="image-studio" aria-labelledby="imageStudioTitle"><div><h3 id="imageStudioTitle">宣传图片</h3><p>使用 YosHub 根据项目资料生成 1K 方图，生成结果保存在本机。</p></div><label class="image-prompt-label" for="imagePrompt">画面描述</label><textarea id="imagePrompt" rows="2" placeholder="描述海报主题、风格、色彩与画面元素；不要把未确认信息写入图片"></textarea><div class="image-studio-actions"><span>gpt-image-2 · 1024 × 1024</span><button id="generateImageBtn" class="button button-secondary"><span>▧</span> YosHub 生成图片</button><span id="imageStatus" role="status"></span></div><div id="generatedImages" class="generated-images"></div></section>
+            <div class="materials-grid" id="materialsGrid"></div>
           </section>
 
           <section class="view-panel hidden" id="logView">
@@ -159,6 +205,7 @@
           </section>
 
           <footer class="page-footer"><span>项目资料仅保存在当前浏览器</span><span>最近保存：刚刚</span><button id="resetBtn" class="reset-button organizer-only">重置演示</button></footer>
+          </div>
         </div>
       </main>
     </div>
@@ -179,7 +226,7 @@
 
     <dialog id="createEventDialog" class="resolution-dialog create-event-dialog">
       <form id="createEventForm" class="dialog-shell">
-        <div class="dialog-header"><div><span class="dialog-kicker">新的工作区</span><h2>创建活动</h2></div><button type="button" class="quiet-icon" id="closeCreateEvent" aria-label="关闭">×</button></div>
+        <div class="dialog-header"><div><span class="dialog-kicker">新的工作区</span><h2>创建项目</h2></div><button type="button" class="quiet-icon" id="closeCreateEvent" aria-label="关闭">×</button></div>
         <div class="dialog-body event-form-grid">
           <label class="event-field field-wide"><span>活动名称</span><input name="name" maxlength="40" placeholder="例如：校园公益义卖" required /></label>
           <label class="event-field"><span>活动类别</span><input name="category" maxlength="30" placeholder="例如：校园文化节" required /></label>
@@ -187,11 +234,19 @@
           <label class="event-field"><span>开始时间</span><input name="start" type="time" value="09:00" required /></label>
           <label class="event-field"><span>结束时间</span><input name="end" type="time" value="17:00" required /></label>
           <label class="event-field"><span>预计人数</span><input name="guests" type="number" min="1" max="5000" value="100" required /></label>
-          <label class="event-field"><span>预算上限（元）</span><input name="budget" type="number" min="0" step="100" value="5000" required /></label>
+          <label class="event-field"><span>预算上限（元）</span><input name="budget" type="number" min="500" step="100" value="5000" required /></label>
           <label class="event-field field-wide"><span>当前场地</span><input name="venue" maxlength="40" placeholder="例如：大学生活动中心" required /></label>
           <p id="createEventError" class="form-error field-wide" role="alert"></p>
         </div>
-        <div class="dialog-footer"><button type="button" class="button button-secondary" id="cancelCreateEvent">取消</button><button type="submit" class="button button-primary">创建并打开活动 <span>→</span></button></div>
+        <div class="dialog-footer"><button type="button" class="button button-secondary" id="cancelCreateEvent">取消</button><button type="submit" class="button button-primary">创建项目 <span>→</span></button></div>
+      </form>
+    </dialog>
+
+    <dialog id="materialDialog" class="resolution-dialog material-dialog">
+      <form id="materialForm" class="dialog-shell">
+        <div class="dialog-header"><div><span class="dialog-kicker" id="materialPhaseLabel">过程材料</span><h2 id="materialTitle">编辑材料</h2></div><button type="button" class="quiet-icon" id="closeMaterial" aria-label="关闭">×</button></div>
+        <div class="dialog-body"><label class="ai-instruction-label" for="aiInstruction">DeepSeek 修改要求</label><div class="ai-instruction-row"><input id="aiInstruction" placeholder="例如：整理结构并润色，保留所有待补充项" /><button type="button" id="generateTextBtn" class="button button-secondary">DeepSeek 起草</button></div><p id="textAiStatus" class="ai-status" role="status"></p><textarea id="materialEditor" spellcheck="false" aria-label="材料内容"></textarea></div>
+        <div class="dialog-footer"><button type="button" class="button button-secondary" id="cancelMaterial">取消</button><button type="button" class="button button-secondary" id="downloadMaterial">下载 Markdown</button><button id="saveMaterial" type="submit" class="button button-primary">保存材料 <span>✓</span></button></div>
       </form>
     </dialog>
 

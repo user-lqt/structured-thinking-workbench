@@ -24,3 +24,4 @@ temp/
 ~$*
 .DS_Store
 Thumbs.db
+workbench/demo/generated/
