@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f7f6" />
+    <title>活动管控台 · 科创作品展</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#overview" aria-label="活动管控台首页">
+          <span class="brand-mark">场</span>
+          <span class="brand-copy"><strong>活动管控台</strong><small>校园项目空间</small></span>
+        </a>
+
+        <div class="workspace-label">项目工作区</div>
+        <nav class="primary-nav" aria-label="主导航">
+          <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>总览</button>
+          <button class="nav-item" data-view="tasks"><span class="nav-icon">☷</span>任务计划<span class="nav-count" id="taskCountNav">8</span></button>
+          <button class="nav-item" data-view="resources"><span class="nav-icon">▦</span>人员与资源</button>
+          <button class="nav-item" data-view="risks"><span class="nav-icon">△</span>风险预案<span class="nav-alert" id="riskCountNav">2</span></button>
+          <button class="nav-item" data-view="log"><span class="nav-icon">◷</span>变更记录</button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="team-block">
+            <div class="team-title">项目成员 <button class="quiet-icon" aria-label="添加成员" title="添加成员">＋</button></div>
+            <div class="avatar-row" aria-label="4 位项目成员">
+              <span class="avatar avatar-teal">林</span><span class="avatar avatar-coral">周</span><span class="avatar avatar-violet">陈</span><span class="avatar avatar-amber">许</span>
+              <span class="member-count">4 人</span>
+            </div>
+          </div>
+          <button class="profile-button"><span class="profile-avatar">林</span><span><strong>林同学</strong><small>项目组织者</small></span><span class="more">···</span></button>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="breadcrumb"><span>活动项目</span><span class="crumb-sep">/</span><select id="activitySelect" class="project-select" aria-label="切换演示活动"></select></div>
+          <div class="topbar-actions">
+            <span class="saved-status"><i></i>已保存</span>
+            <button class="icon-button" aria-label="通知" title="通知">♧<b class="notification-dot"></b></button>
+            <button class="help-button">帮助 <span>?</span></button>
+          </div>
+        </header>
+
+        <div class="content-wrap">
+          <section class="page-heading">
+            <div>
+              <div class="eyebrow" id="eventEyebrow">2026 · 校园活动</div>
+              <h1 id="eventTitle">活动筹备工作台</h1>
+              <p id="eventDescription">把筹备进度、现场安排和风险处理放在同一个工作区。</p>
+            </div>
+            <div class="heading-actions">
+              <button id="simulateBtn" class="button button-warning"><span>⚡</span> 模拟场地取消</button>
+              <button id="exportBtn" class="button button-primary"><span>⇧</span> 导出执行清单</button>
+            </div>
+          </section>
+
+          <div id="incidentBanner" class="incident-banner hidden" role="status">
+            <span class="incident-symbol">!</span>
+            <div><strong>场地临时不可用</strong><span id="incidentDetails"></span></div>
+            <button id="resolveBtn" class="text-button">查看调整方案 <span>→</span></button>
+            <button id="dismissIncident" class="quiet-icon" aria-label="关闭提示">×</button>
+          </div>
+
+          <section class="metric-strip" aria-label="项目摘要">
+            <div class="metric"><span>筹备进度</span><strong id="progressValue">68<small>%</small></strong><div class="metric-track"><i id="progressBar" style="width:68%"></i></div><em>按任务完成情况估算</em></div>
+            <div class="metric"><span>任务状态</span><strong id="taskMetric">8<small> / 12 已完成</small></strong><em class="metric-note" id="taskMetricNote">2 项进行中 · 2 项待开始</em></div>
+            <div class="metric"><span>预算使用</span><strong id="budgetMetric">¥4,280<small> / 6,000</small></strong><div class="metric-track budget-track"><i id="budgetBar" style="width:71%"></i></div><em id="budgetRemaining">剩余 ¥1,720</em></div>
+            <div class="metric metric-risk"><span>待处理风险</span><strong id="riskCount">2<small> 项</small></strong><em><i class="risk-dot"></i>1 项高优先级</em></div>
+          </section>
+
+          <nav class="view-tabs" aria-label="项目视图">
+            <button class="view-tab active" data-view="overview">项目总览</button>
+            <button class="view-tab" data-view="tasks">任务计划 <span id="taskCountTab">8</span></button>
+            <button class="view-tab" data-view="resources">资源安排</button>
+            <button class="view-tab" data-view="risks">风险清单 <span class="tab-alert" id="riskCountTab">2</span></button>
+          </nav>
+
+          <section class="view-panel" id="overviewView">
+            <div class="section-heading">
+              <div><h2>筹备总览</h2><span id="daysToEvent"></span></div>
+              <button class="select-button">全部阶段 <span>⌄</span></button>
+            </div>
+
+            <div class="overview-grid">
+              <div class="schedule-panel">
+                <div class="panel-topline"><h3>关键任务</h3><button class="text-button" data-open-view="tasks">查看全部 <span>→</span></button></div>
+                <div class="task-list" id="taskList">
+                  <div id="taskListRows"></div>
+                </div>
+              </div>
+
+              <aside class="side-column">
+                <div class="venue-panel">
+                  <div class="panel-topline"><h3>活动场地</h3><button class="quiet-icon" title="场地详情" aria-label="场地详情">···</button></div>
+                  <div class="venue-illustration" aria-hidden="true"><span class="venue-window"></span><span class="venue-stage"></span><span class="venue-seat seat-a"></span><span class="venue-seat seat-b"></span><span class="venue-seat seat-c"></span><span class="venue-seat seat-d"></span></div>
+                  <strong id="venueName" class="venue-name"></strong>
+                  <div class="venue-meta"><span id="venueTime"></span><span id="venueCapacity"></span></div>
+                  <div id="venueState" class="venue-state"><i></i> 已确认 <span>· 陈同学</span></div>
+                </div>
+                <div class="risk-panel">
+                  <div class="panel-topline"><h3>风险提醒</h3><button class="text-button" data-open-view="risks">全部 <span>→</span></button></div>
+                  <div id="riskPreview"></div>
+                </div>
+              </aside>
+            </div>
+
+            <div class="timeline-panel">
+              <div class="panel-topline"><div><h3>筹备节奏</h3><small id="timelineDate"></small></div><button class="select-button">按周查看 <span>⌄</span></button></div>
+              <div class="timeline-days" id="timelineDays"></div>
+              <div class="timeline-track" id="timelineTrack"><div class="timeline-line"></div></div>
+            </div>
+          </section>
+
+          <section class="view-panel hidden" id="tasksView">
+            <div class="section-heading"><div><h2>任务计划</h2><span id="taskViewSummary"></span></div><button class="button button-primary" id="addTaskBtn">＋ 新建任务</button></div>
+            <div class="filter-row"><button class="filter-chip active">全部 <span id="filterAll">8</span></button><button class="filter-chip">进行中 <span id="filterProgress">1</span></button><button class="filter-chip">待开始 <span id="filterTodo">1</span></button><button class="filter-chip">已完成 <span id="filterDone">6</span></button><div class="filter-spacer"></div><button class="select-button">按日期排序⌄</button></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>任务名称</th><th>阶段</th><th>负责人</th><th>截止日期</th><th>前置任务</th><th>状态</th></tr></thead><tbody id="tasksTableBody"></tbody></table></div>
+          </section>
+
+          <section class="view-panel hidden" id="resourcesView">
+            <div class="section-heading"><div><h2>人员与资源</h2><span>检查活动时段的人员、场地和设备安排</span></div><button class="button button-primary">＋ 添加资源</button></div>
+            <div class="resource-summary"><div><span>活动时段</span><strong id="resourceTime"></strong></div><div><span>参与人数</span><strong id="attendeeCount"></strong></div><div><span>预算上限</span><strong id="budgetLimit"></strong></div></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>资源</th><th>类型</th><th>可用数量</th><th>已安排</th><th>检查结果</th></tr></thead><tbody id="resourcesTableBody"></tbody></table></div>
+          </section>
+
+          <section class="view-panel hidden" id="risksView">
+            <div class="section-heading"><div><h2>风险清单</h2><span id="riskSummary"></span></div><button class="button button-primary">＋ 新增风险</button></div>
+            <div class="risk-cards" id="riskCards"></div>
+          </section>
+
+          <section class="view-panel hidden" id="logView">
+            <div class="section-heading"><div><h2>变更记录</h2><span>记录活动安排变化、确认人与处理结果</span></div></div>
+            <div class="log-list" id="logList"></div>
+          </section>
+
+          <footer class="page-footer"><span>项目资料仅保存在当前浏览器</span><span>最近保存：刚刚</span><button id="resetBtn" class="reset-button">重置演示</button></footer>
+        </div>
+      </main>
+    </div>
+
+    <dialog id="resolutionDialog" class="resolution-dialog">
+      <form method="dialog" class="dialog-shell">
+        <div class="dialog-header"><div><span class="dialog-kicker">紧急变更 · 场地不可用</span><h2>调整活动安排</h2></div><button class="quiet-icon close-dialog" aria-label="关闭">×</button></div>
+        <div class="dialog-body">
+          <div class="change-summary"><span class="change-icon">!</span><div><strong id="dialogIncidentTitle"></strong><p id="dialogIncidentDetails"></p></div></div>
+          <div class="impact-list"><strong>受影响任务</strong><span id="impactCount"></span><ul id="impactTasks"></ul></div>
+          <div class="alternative-heading"><strong>可选替代场地</strong><span>按容量、时段和预算筛选</span></div>
+          <div id="alternatives" class="alternatives"></div>
+          <div id="selectedReason" class="selection-reason">选择一个满足人数、时段和预算要求的场地，确认后同步更新安排。</div>
+        </div>
+        <div class="dialog-footer"><button type="button" class="button button-secondary" id="cancelResolution">暂不处理</button><button type="button" class="button button-primary" id="confirmResolution" disabled>确认并更新安排 <span>→</span></button></div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
