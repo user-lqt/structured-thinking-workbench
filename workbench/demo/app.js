@@ -34,24 +34,40 @@ const events = {
   }
 };
 
-const initialState = { eventId: 'showcase', incident: false, resolved: false, chosenVenue: null, extraCost: 0, logs: [] };
+const initialState = { eventId: 'showcase', incident: false, resolved: false, chosenVenue: null, extraCost: 0, logs: [], customEvents: {}, user: null };
 const storageKey = 'event-workbench-demo-v1';
 let state = loadState();
+Object.assign(events, state.customEvents || {});
 let toastTimer;
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const currentEvent = () => events[state.eventId];
+const roleNames = { organizer: '活动组织者', member: '活动成员', viewer: '只读访客' };
+const canManage = () => state.user?.role === 'organizer';
+const canOperate = () => state.user?.role === 'organizer' || state.user?.role === 'member';
 const formatDate = (date, withYear = false) => {
   const d = new Date(`${date}T12:00:00`);
   return `${withYear ? `${d.getFullYear()} 年 ` : ''}${d.getMonth() + 1} 月 ${d.getDate()} 日`;
 };
-const dateShort = (value) => `10 月 ${Number(value.split('-')[1])} 日`;
+const dateShort = (value) => {
+  const parts = value.split('-');
+  return `${Number(parts.at(-2))} 月 ${Number(parts.at(-1))} 日`;
+};
+const dateOffset = (date, days) => {
+  const value = new Date(`${date}T12:00:00`);
+  value.setDate(value.getDate() + days);
+  return value.toISOString().slice(0, 10);
+};
 
 function loadState() {
-  try { return { ...initialState, ...JSON.parse(localStorage.getItem(storageKey) || '{}') }; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    return { ...initialState, ...saved, customEvents: saved.customEvents || {}, logs: saved.logs || [] };
+  }
   catch { return { ...initialState }; }
 }
 function saveState() {
+  state.customEvents = Object.fromEntries(Object.entries(events).filter(([id]) => !['showcase', 'welcome', 'forum'].includes(id)));
   localStorage.setItem(storageKey, JSON.stringify(state));
   $('.saved-status').innerHTML = '<i></i>已保存';
 }
@@ -66,6 +82,8 @@ function openView(view) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function render() {
+  if (!events[state.eventId]) state.eventId = 'showcase';
+  if (state.user && !roleNames[state.user.role]) state.user = null;
   const event = currentEvent();
   const venue = state.chosenVenue ? { name: state.chosenVenue.name, capacity: state.chosenVenue.capacity } : event.venue;
   const used = event.used + (state.eventId === state.resolvedEvent ? state.extraCost : 0);
@@ -76,6 +94,18 @@ function render() {
 
   $('#activitySelect').innerHTML = Object.entries(events).map(([id, item]) => `<option value="${id}">${escapeHtml(item.name)}</option>`).join('');
   $('#activitySelect').value = state.eventId;
+  const authenticated = Boolean(state.user?.name && state.user?.role);
+  $('#authGate').classList.toggle('is-open', !authenticated);
+  document.querySelector('.app-shell').setAttribute('aria-hidden', String(!authenticated));
+  document.querySelector('.app-shell').inert = !authenticated;
+  if (!authenticated) requestAnimationFrame(() => $('#loginName').focus());
+  if (authenticated) {
+    $('#profileName').textContent = state.user.name;
+    $('#profileInitial').textContent = state.user.name.slice(0, 1);
+    $('#profileRole').textContent = roleNames[state.user.role];
+  }
+  document.querySelectorAll('.organizer-only').forEach((el) => el.classList.toggle('hidden', !canManage()));
+  document.querySelectorAll('.member-only').forEach((el) => el.classList.toggle('hidden', !canOperate()));
   $('#eventEyebrow').textContent = `${event.category} · ${formatDate(event.date)}`;
   $('#eventTitle').textContent = event.name;
   $('#eventDescription').textContent = `${event.guests} 位预计参与者 · ${event.start} - ${event.end} · ${event.budget.toLocaleString()} 元预算`;
@@ -118,7 +148,8 @@ function render() {
   $('#timelineDays').innerHTML = Array.from({ length: 7 }, (_, i) => { const d = new Date(timelineStart); d.setDate(d.getDate() + i); return `<span class="${i === 3 ? 'today' : ''} ${i === 6 ? 'event-day' : ''}">${['周日','周一','周二','周三','周四','周五','周六'][d.getDay()]}<br><b>${d.getDate()}</b></span>`; }).join('');
   $('#timelineTrack').innerHTML = `<div class="timeline-line"></div>${event.tasks.filter((task) => task[5]).slice(0, 3).map((task, i) => `<div class="timeline-block ${['block-teal','block-gold','block-coral'][i]}" style="--start:${i * 2};--span:2"><b>${escapeHtml(task[0])}</b><small>${escapeHtml(task[2])}</small></div>`).join('')}`;
   $('#logList').innerHTML = state.logs.length ? [...state.logs].reverse().map((log) => `<article class="log-entry"><span class="log-time">${escapeHtml(log.time)}</span><div><strong>${escapeHtml(log.title)}</strong><p>${escapeHtml(log.detail)}</p></div><span class="log-tag">${escapeHtml(log.tag)}</span></article>`).join('') : '<div class="empty-log">还没有变更记录。模拟一次活动调整后，处理过程会记录在这里。</div>';
-  $('#simulateBtn').disabled = state.incident && !state.resolved;
+  $('#simulateBtn').disabled = (state.incident && !state.resolved) || !canOperate();
+  $('#simulateBtn').classList.toggle('hidden', !canOperate());
   $('#simulateBtn').innerHTML = state.incident && !state.resolved ? '<span>!</span> 正在处理变更' : '<span>⚡</span> 模拟场地取消';
   saveState();
 }
@@ -128,6 +159,7 @@ function taskRow(task) {
   return `<div class="task-row ${status === 'done' ? 'done' : status === 'progress' ? 'in-progress' : ''}"><span class="task-check">${status === 'done' ? '✓' : status === 'progress' ? '◔' : ''}</span><div class="task-main"><strong>${escapeHtml(task[0])}</strong><small>${escapeHtml(task[1])} · ${escapeHtml(task[2])}${state.resolvedEvent === state.eventId && task[5] ? ` · ${escapeHtml(state.chosenVenue.name)}` : ''}</small></div><span class="task-date">${dateShort(task[3])}</span><span class="task-status status-${status}">${statusName(status)}</span></div>`;
 }
 function showResolution() {
+  if (!canOperate()) return;
   const event = currentEvent();
   $('#dialogIncidentTitle').textContent = `${event.venue.name}无法使用`;
   $('#dialogIncidentDetails').textContent = `影响：${formatDate(event.date)} ${event.start} - ${event.end} · 预计 ${event.guests} 人`;
@@ -150,11 +182,22 @@ function showResolution() {
 
 document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => openView(button.dataset.view)));
 document.querySelectorAll('[data-open-view]').forEach((button) => button.addEventListener('click', () => openView(button.dataset.openView)));
+$('#loginForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  state.user = { name: String(form.get('name') || '').trim(), role: form.get('role') };
+  if (!state.user.name || !roleNames[state.user.role]) { showToast('请输入显示名称并选择演示身份'); return; }
+  saveState(); render(); showToast(`已以${roleNames[state.user.role]}身份进入`);
+});
+$('#profileButton').addEventListener('click', () => {
+  state.user = null; saveState(); render(); $('#loginName').value = '';
+  document.querySelector('input[name="role"][value="organizer"]').checked = true;
+});
 $('#activitySelect').addEventListener('change', (event) => {
   state.eventId = event.target.value; state.incident = false; state.resolved = false; state.chosenVenue = null; state.extraCost = 0; state.resolvedEvent = null;
   saveState(); render(); openView('overview');
 });
-$('#simulateBtn').addEventListener('click', () => { state.incident = true; saveState(); render(); showResolution(); });
+$('#simulateBtn').addEventListener('click', () => { if (!canOperate()) return; state.incident = true; saveState(); render(); showResolution(); });
 $('#resolveBtn').addEventListener('click', showResolution);
 $('#dismissIncident').addEventListener('click', () => { $('#incidentBanner').classList.add('hidden'); });
 $('#cancelResolution').addEventListener('click', () => $('#resolutionDialog').close());
@@ -184,9 +227,61 @@ $('#exportBtn').addEventListener('click', () => {
   const link = document.createElement('a'); link.href = url; link.download = `${event.name}-执行清单.csv`; link.click(); URL.revokeObjectURL(url); showToast('执行清单已导出');
 });
 $('#resetBtn').addEventListener('click', () => {
-  state = { ...initialState, logs: [] }; localStorage.removeItem(storageKey); render(); openView('overview'); showToast('演示数据已恢复初始状态');
+  if (!canManage()) return;
+  if (!window.confirm('重置会清除当前浏览器中的自建活动与变更记录，是否继续？')) return;
+  Object.keys(events).filter((id) => !['showcase', 'welcome', 'forum'].includes(id)).forEach((id) => delete events[id]);
+  state = { ...initialState, user: state.user, customEvents: {}, logs: [] };
+  localStorage.removeItem(storageKey); render(); openView('overview'); showToast('演示项目已恢复初始状态');
 });
 $('#addTaskBtn').addEventListener('click', () => showToast('任务新建为演示入口，当前原型聚焦活动变更流程'));
+$('#createEventBtn').addEventListener('click', () => {
+  if (!canManage()) return;
+  $('#createEventError').textContent = '';
+  const today = new Date(); const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  $('#createEventDate').min = todayIso;
+  if (!$('#createEventDate').value || $('#createEventDate').value < todayIso) $('#createEventDate').value = dateOffset(todayIso, 14);
+  $('#createEventDialog').showModal();
+});
+$('#closeCreateEvent').addEventListener('click', () => $('#createEventDialog').close());
+$('#cancelCreateEvent').addEventListener('click', () => $('#createEventDialog').close());
+$('#createEventForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (!canManage()) return;
+  const formData = new FormData(event.currentTarget);
+  const values = Object.fromEntries(formData.entries());
+  const guests = Number(values.guests); const budget = Number(values.budget);
+  if (values.end <= values.start) {
+    $('#createEventError').textContent = '结束时间要晚于开始时间。'; return;
+  }
+  if (!Number.isFinite(guests) || guests < 1 || !Number.isFinite(budget) || budget < 500) {
+    $('#createEventError').textContent = '请检查人数与预算，预算至少为 500 元。'; return;
+  }
+  const eventId = `event-${Date.now().toString(36)}`;
+  const dayBefore = dateOffset(values.date, -1); const eventDate = values.date;
+  const dayAfter = dateOffset(values.date, 1);
+  const tasks = [
+    ['确认活动目标与流程', '策划', state.user.name, dateOffset(values.date, -7), 'todo'],
+    ['发布活动通知与报名', '宣传', state.user.name, dateOffset(values.date, -5), 'todo'],
+    ['确认场地与所需资源', '筹备', state.user.name, dateOffset(values.date, -3), 'todo'],
+    ['现场搭建与设备检查', '执行', state.user.name, dayBefore, 'todo', true],
+    ['活动执行与现场保障', '执行', state.user.name, eventDate, 'todo', true],
+    ['整理反馈并完成复盘', '收尾', state.user.name, dayAfter, 'todo']
+  ];
+  const venues = [
+    ['多功能活动室', Math.max(60, Math.min(120, Math.ceil(guests / 60) * 60)), true, Math.round(budget * .08)],
+    ['综合楼报告厅', Math.max(200, guests), true, Math.round(budget * .14)],
+    ['学生活动中心', Math.max(500, guests), false, Math.round(budget * .22)],
+    ['体育馆', Math.max(1000, guests), true, Math.round(budget * .35)]
+  ];
+  events[eventId] = {
+    name: values.name.trim(), category: values.category.trim(), date: eventDate, start: values.start, end: values.end,
+    guests, budget, used: 0, venue: { name: values.venue.trim(), capacity: guests }, tasks,
+    risks: [['参与人数或需求变化', '中', `${dateShort(dayBefore)} · ${state.user.name}`, '在报名截止前复核人数与资源需求']], venues
+  };
+  state.eventId = eventId; state.incident = false; state.resolved = false; state.chosenVenue = null; state.extraCost = 0; state.resolvedEvent = null;
+  state.logs.push({ time: new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }), title: `创建活动「${events[eventId].name}」`, detail: `活动日期 ${dateShort(eventDate)}，预计 ${guests} 人参加，预算上限 ¥${budget.toLocaleString()}。`, tag: '新建活动' });
+  saveState(); $('#createEventDialog').close(); event.currentTarget.reset(); render(); openView('overview'); showToast('活动已创建并保存到当前浏览器');
+});
 document.querySelectorAll('.filter-chip').forEach((chip) => chip.addEventListener('click', () => {
   document.querySelectorAll('.filter-chip').forEach((item) => item.classList.remove('active'));
   chip.classList.add('active');

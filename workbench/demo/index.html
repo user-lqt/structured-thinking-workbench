@@ -8,6 +8,25 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <section id="authGate" class="auth-gate" aria-labelledby="authTitle">
+      <form id="loginForm" class="auth-panel">
+        <span class="brand-mark auth-mark">场</span>
+        <div class="eyebrow">校园活动协作空间</div>
+        <h1 id="authTitle">进入活动工作台</h1>
+        <p class="auth-description">选择本次演示身份</p>
+        <label class="field-label" for="loginName">显示名称</label>
+        <input id="loginName" name="name" maxlength="20" placeholder="例如：林同学" autocomplete="name" required />
+        <fieldset class="role-picker">
+          <legend>身份</legend>
+          <label><input type="radio" name="role" value="organizer" checked /><span><strong>组织者</strong><small>管理活动与演示数据</small></span></label>
+          <label><input type="radio" name="role" value="member" /><span><strong>活动成员</strong><small>查看安排并处理执行变更</small></span></label>
+          <label><input type="radio" name="role" value="viewer" /><span><strong>访客</strong><small>只读查看活动信息</small></span></label>
+        </fieldset>
+        <button class="button button-primary auth-submit" type="submit">进入工作台 <span>→</span></button>
+        <p class="auth-note">本地演示登录，不连接账号服务；身份仅用于体验界面权限。</p>
+      </form>
+    </section>
+
     <div class="app-shell">
       <aside class="sidebar">
         <a class="brand" href="#overview" aria-label="活动管控台首页">
@@ -32,7 +51,7 @@
               <span class="member-count">4 人</span>
             </div>
           </div>
-          <button class="profile-button"><span class="profile-avatar">林</span><span><strong>林同学</strong><small>项目组织者</small></span><span class="more">···</span></button>
+          <button class="profile-button" id="profileButton" title="切换演示身份"><span class="profile-avatar" id="profileInitial">林</span><span><strong id="profileName">林同学</strong><small id="profileRole">项目组织者</small></span><span class="more">↪</span></button>
         </div>
       </aside>
 
@@ -54,6 +73,7 @@
               <p id="eventDescription">把筹备进度、现场安排和风险处理放在同一个工作区。</p>
             </div>
             <div class="heading-actions">
+              <button id="createEventBtn" class="button button-secondary organizer-only"><span>＋</span> 创建活动</button>
               <button id="simulateBtn" class="button button-warning"><span>⚡</span> 模拟场地取消</button>
               <button id="exportBtn" class="button button-primary"><span>⇧</span> 导出执行清单</button>
             </div>
@@ -62,7 +82,7 @@
           <div id="incidentBanner" class="incident-banner hidden" role="status">
             <span class="incident-symbol">!</span>
             <div><strong>场地临时不可用</strong><span id="incidentDetails"></span></div>
-            <button id="resolveBtn" class="text-button">查看调整方案 <span>→</span></button>
+            <button id="resolveBtn" class="text-button member-only">查看调整方案 <span>→</span></button>
             <button id="dismissIncident" class="quiet-icon" aria-label="关闭提示">×</button>
           </div>
 
@@ -117,7 +137,7 @@
           </section>
 
           <section class="view-panel hidden" id="tasksView">
-            <div class="section-heading"><div><h2>任务计划</h2><span id="taskViewSummary"></span></div><button class="button button-primary" id="addTaskBtn">＋ 新建任务</button></div>
+            <div class="section-heading"><div><h2>任务计划</h2><span id="taskViewSummary"></span></div><button class="button button-primary organizer-only" id="addTaskBtn">＋ 新建任务</button></div>
             <div class="filter-row"><button class="filter-chip active">全部 <span id="filterAll">8</span></button><button class="filter-chip">进行中 <span id="filterProgress">1</span></button><button class="filter-chip">待开始 <span id="filterTodo">1</span></button><button class="filter-chip">已完成 <span id="filterDone">6</span></button><div class="filter-spacer"></div><button class="select-button">按日期排序⌄</button></div>
             <div class="table-wrap"><table class="data-table"><thead><tr><th>任务名称</th><th>阶段</th><th>负责人</th><th>截止日期</th><th>前置任务</th><th>状态</th></tr></thead><tbody id="tasksTableBody"></tbody></table></div>
           </section>
@@ -138,7 +158,7 @@
             <div class="log-list" id="logList"></div>
           </section>
 
-          <footer class="page-footer"><span>项目资料仅保存在当前浏览器</span><span>最近保存：刚刚</span><button id="resetBtn" class="reset-button">重置演示</button></footer>
+          <footer class="page-footer"><span>项目资料仅保存在当前浏览器</span><span>最近保存：刚刚</span><button id="resetBtn" class="reset-button organizer-only">重置演示</button></footer>
         </div>
       </main>
     </div>
@@ -154,6 +174,24 @@
           <div id="selectedReason" class="selection-reason">选择一个满足人数、时段和预算要求的场地，确认后同步更新安排。</div>
         </div>
         <div class="dialog-footer"><button type="button" class="button button-secondary" id="cancelResolution">暂不处理</button><button type="button" class="button button-primary" id="confirmResolution" disabled>确认并更新安排 <span>→</span></button></div>
+      </form>
+    </dialog>
+
+    <dialog id="createEventDialog" class="resolution-dialog create-event-dialog">
+      <form id="createEventForm" class="dialog-shell">
+        <div class="dialog-header"><div><span class="dialog-kicker">新的工作区</span><h2>创建活动</h2></div><button type="button" class="quiet-icon" id="closeCreateEvent" aria-label="关闭">×</button></div>
+        <div class="dialog-body event-form-grid">
+          <label class="event-field field-wide"><span>活动名称</span><input name="name" maxlength="40" placeholder="例如：校园公益义卖" required /></label>
+          <label class="event-field"><span>活动类别</span><input name="category" maxlength="30" placeholder="例如：校园文化节" required /></label>
+          <label class="event-field"><span>活动日期</span><input id="createEventDate" name="date" type="date" required /></label>
+          <label class="event-field"><span>开始时间</span><input name="start" type="time" value="09:00" required /></label>
+          <label class="event-field"><span>结束时间</span><input name="end" type="time" value="17:00" required /></label>
+          <label class="event-field"><span>预计人数</span><input name="guests" type="number" min="1" max="5000" value="100" required /></label>
+          <label class="event-field"><span>预算上限（元）</span><input name="budget" type="number" min="0" step="100" value="5000" required /></label>
+          <label class="event-field field-wide"><span>当前场地</span><input name="venue" maxlength="40" placeholder="例如：大学生活动中心" required /></label>
+          <p id="createEventError" class="form-error field-wide" role="alert"></p>
+        </div>
+        <div class="dialog-footer"><button type="button" class="button button-secondary" id="cancelCreateEvent">取消</button><button type="submit" class="button button-primary">创建并打开活动 <span>→</span></button></div>
       </form>
     </dialog>
 
