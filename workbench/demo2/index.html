@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f7f6" />
+    <title>大型校园活动结构化策划与管控工作台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="loginGate" class="login-gate" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <form id="loginForm" class="login-panel">
+        <div class="login-head">
+          <span class="brand-mark">结</span>
+          <div>
+            <div class="eyebrow">结构化活动工作台</div>
+            <h1 id="loginTitle">选择本地演示身份</h1>
+          </div>
+        </div>
+        <p class="login-note">这是纯本地的演示身份，不接入任何账号系统；身份只保存在你自己的浏览器里，用来演示「谁能改、谁只能看」。</p>
+        <label class="login-field"><span>显示名称</span>
+          <input id="loginName" name="name" maxlength="20" autocomplete="off" placeholder="如：张同学" /></label>
+        <div class="login-roles" id="loginRoles"></div>
+        <div class="login-foot">
+          <span id="loginHint" class="wizard-hint">身份可随时在右上角切换，不会丢失任何数据</span>
+          <button type="submit" class="button button-primary" id="loginSubmit">进入工作台 <span>→</span></button>
+        </div>
+      </form>
+    </div>
+
+    <div id="wizard" class="wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <form id="wizardForm" class="wizard-panel">
+        <div class="wizard-head">
+          <span class="brand-mark">结</span>
+          <div>
+            <div class="eyebrow">结构化活动工作台</div>
+            <h1 id="wizardTitle">先告诉我这次活动的基本信息</h1>
+            <p>不必填全。留空的项会由 AI 补成「待确认」，不会编造内容。</p>
+          </div>
+          <button type="button" class="quiet-icon close-wizard" aria-label="关闭">×</button>
+        </div>
+        <div id="wizardFields" class="wizard-fields"></div>
+        <div class="wizard-foot">
+          <span id="wizardHint" class="wizard-hint">带 <b>*</b> 为必填；其余可留空，交由 AI 补成「待确认」</span>
+          <div class="wizard-actions">
+            <button type="button" class="button button-ghost" id="wizardSample">载入示例项目</button>
+            <button type="button" class="button button-ghost" id="wizardSkip">跳过，稍后填写</button>
+            <button type="submit" class="button button-primary" id="wizardSubmit">生成结构化表格 <span>→</span></button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="brand-mark small">结</span>
+          <div class="topbar-title">
+            <strong id="projectName">未命名活动</strong>
+            <small id="projectMeta">尚未建立项目信息表</small>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <span id="aiStatus" class="ai-status"><i></i>检测中</span>
+          <select id="projectSwitch" class="project-switch" title="切换当前项目" aria-label="切换当前项目"></select>
+          <button class="button button-ghost" id="editBasic">基本信息</button>
+          <button class="button button-ghost" id="resetBtn">重新填写</button>
+          <button class="button button-ghost" id="userChip" title="切换身份或退出登录"></button>
+        </div>
+      </header>
+
+      <nav class="tabs" id="tabs"></nav>
+
+      <main class="content">
+        <section class="panel hidden" id="projectsPanel">
+          <div class="panel-head">
+            <div>
+              <h2>项目库</h2>
+              <p>所有活动项目都保存在本机浏览器里，彼此互不干扰；可切换、复制、归档，或导出项目包跨设备迁移。</p>
+            </div>
+          </div>
+          <div id="projectsToolbar" class="assets-toolbar"></div>
+          <div id="projectsStats"></div>
+          <div id="projectList"></div>
+        </section>
+
+        <section class="panel hidden" id="overviewPanel"></section>
+
+        <section class="panel hidden" id="manifestPanel">
+          <div class="panel-head">
+            <div>
+              <h2 id="manifestTitle">项目信息表</h2>
+              <p id="manifestSubtitle">事实区由你确认，产出配置决定后续生成哪些任务与材料。</p>
+              <p id="skillSummary" class="skill-summary"></p>
+            </div>
+            <div class="panel-actions">
+              <button class="button button-primary" id="aiFillManifest"><span>✦</span> AI 补全信息表</button>
+              <button class="button button-ghost" id="generateMaterials"><span>✦</span> 批量生成已选材料</button>
+              <button class="button button-ghost" id="exportManifestJson">导出 JSON</button>
+              <button class="button button-ghost" id="exportManifestMd">导出 Markdown</button>
+            </div>
+          </div>
+          <div id="basicSection" class="card"></div>
+          <div id="outputSection" class="card"></div>
+          <div id="manifestNotes"></div>
+        </section>
+
+        <section class="panel hidden" id="tasksPanel">
+          <div class="panel-head">
+            <div>
+              <h2>全周期任务</h2>
+              <p>覆盖前期策划—活动筹备—现场执行—活动收尾；可切换表格、甘特与阶段门禁三种视图。</p>
+            </div>
+            <div class="panel-actions">
+              <button class="button button-primary" id="generateWbs"><span>✦</span> AI 生成任务分解</button>
+              <button class="button button-ghost" id="addWbsRow">＋ 添加任务</button>
+              <button class="button button-ghost" id="exportWbsMd">导出 Markdown</button>
+              <button class="button button-ghost" id="exportWbsCsv">导出 CSV</button>
+            </div>
+          </div>
+          <div class="wbs-summary" id="wbsSummary"></div>
+          <div class="seg-switch" id="taskSeg">
+            <button data-taskview="table" class="is-active">任务分解表</button>
+            <button data-taskview="gantt">进度甘特</button>
+            <button data-taskview="gate">阶段检查点</button>
+          </div>
+          <div id="taskViewBody"></div>
+        </section>
+
+        <section class="panel hidden" id="decisionPanel">
+          <div class="panel-head">
+            <div>
+              <h2>方案比选决策矩阵</h2>
+              <p>把「拍脑袋选方案」变成可追溯的结构化决策：多方案 × 多准则加权评分。</p>
+            </div>
+            <div class="panel-actions">
+              <button class="button button-ghost" id="decisionPreset">载入预设</button>
+              <button class="button button-primary" id="decisionAi"><span>✦</span> AI 给方案与评分</button>
+              <button class="button button-ghost" id="addOption">＋ 添加方案</button>
+              <button class="button button-ghost" id="addCriterion">＋ 添加维度</button>
+              <button class="button button-ghost" id="exportDecision">导出 Markdown</button>
+            </div>
+          </div>
+          <div id="decisionBody"></div>
+        </section>
+
+        <section class="panel hidden" id="riskPanel">
+          <div class="panel-head">
+            <div>
+              <h2>全流程风险与分级应急预案</h2>
+              <p>风险分值 = 可能性 × 影响，15–25 高，8–14 中，1–7 低；系统会自检覆盖度并自动校准评分。</p>
+            </div>
+            <div class="panel-actions">
+              <button class="button button-primary" id="generateRisks"><span>✦</span> 生成风险清单</button>
+              <button class="button button-ghost" id="calibrateRisks">重新校准评分</button>
+              <button class="button button-ghost" id="addRisk">＋ 添加风险</button>
+              <button class="button button-ghost" id="exportRiskPlan">导出风险预案</button>
+              <button class="button button-ghost" id="exportChecklist">导出处置卡</button>
+            </div>
+          </div>
+          <p id="riskCompliance" class="compliance-note hidden"></p>
+          <div class="wbs-summary" id="riskSummary"></div>
+          <div id="riskCheck"></div>
+          <div class="card">
+            <div class="card-title"><h3>风险矩阵</h3><small>横轴为可能性，纵轴为影响；点击格子筛选</small></div>
+            <div id="riskMatrix" class="matrix-wrap"></div>
+          </div>
+          <div id="riskGroups"></div>
+        </section>
+
+        <section class="panel hidden" id="resourcesPanel">
+          <div class="panel-head">
+            <div>
+              <h2>人员与资源</h2>
+              <p>把人员、场地、设备、物料、经费与车辆登记成台账；「已安排」超过「可用数量」会立即标红。</p>
+              <p id="resourceSummary" class="skill-summary"></p>
+            </div>
+          </div>
+          <div id="resourcesToolbar" class="assets-toolbar"></div>
+          <div id="resourcesStats"></div>
+          <div id="resourceConflicts"></div>
+          <div id="resourceTable"></div>
+        </section>
+
+        <section class="panel hidden" id="drillsPanel">
+          <div class="panel-head">
+            <div>
+              <h2>突发变更演练</h2>
+              <p>按风险类别挑选场景推演处置流程：逐步勾选、记录决策与结论，结束后可一键写入风险台账。</p>
+            </div>
+          </div>
+          <div id="drillsStats"></div>
+          <div id="drillsToolbar" class="assets-toolbar"></div>
+          <div id="drillRunner"></div>
+          <div id="drillHistory"></div>
+          <div id="drillScenarios"></div>
+        </section>
+
+        <section class="panel hidden" id="materialPanel">
+          <div class="panel-head">
+            <div>
+              <h2>过程材料</h2>
+              <p>每个产出对应一个技能包。有学校模板就上传，生成时会逐字对齐模板章节。</p>
+              <p id="materialSummary" class="skill-summary"></p>
+            </div>
+            <div class="panel-actions">
+              <button class="button button-ghost" id="uploadTemplate"><span>⇪</span> 上传 Word 模板</button>
+              <button class="button button-primary" id="generateAllMaterials"><span>✦</span> 批量生成</button>
+              <button class="button button-ghost" id="exportMaterials">导出材料包</button>
+            </div>
+          </div>
+          <div id="templateBar" class="template-bar"></div>
+          <div class="seg-switch" id="materialPhaseSeg"></div>
+          <div id="materialList"></div>
+        </section>
+
+        <section class="panel hidden" id="assetsPanel">
+          <div class="panel-head">
+            <div>
+              <h2>多模态素材库</h2>
+              <p>登记图片、文案与参考链接；生成宣传材料时会作为上下文一并交给模型。</p>
+              <p id="assetSummary" class="skill-summary"></p>
+            </div>
+            <div class="panel-actions">
+              <button class="button button-ghost" id="exportAssets">导出素材清单</button>
+            </div>
+          </div>
+          <div class="assets-toolbar" id="assetsToolbar"></div>
+          <div id="assetList"></div>
+        </section>
+
+        <section class="panel hidden" id="helpPanel"></section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status"></div>
+
+    <input type="file" id="templateFile" accept=".docx,.md,.markdown,.txt" hidden />
+    <input type="file" id="assetFile" accept="image/*,.txt,.md,.csv,.json" multiple hidden />
+    <input type="file" id="bundleFile" accept=".json" hidden />
+    <input type="file" id="projectBundleFile" accept=".json" hidden />
+    <datalist id="wbsTaskOptions"></datalist>
+
+    <script src="./schemas.js"></script>
+    <script src="./materials.js"></script>
+    <script src="./core/util.js"></script>
+    <script src="./core/store.js"></script>
+    <script src="./core/risk.js"></script>
+    <script src="./core/wbs.js"></script>
+    <script src="./core/drills.js"></script>
+    <script src="./core/ai.js"></script>
+    <script src="./core/export.js"></script>
+    <script src="./views/projects.js"></script>
+    <script src="./views/overview.js"></script>
+    <script src="./views/manifest.js"></script>
+    <script src="./views/tasks.js"></script>
+    <script src="./views/decision.js"></script>
+    <script src="./views/risk.js"></script>
+    <script src="./views/resources.js"></script>
+    <script src="./views/drills.js"></script>
+    <script src="./views/material.js"></script>
+    <script src="./views/assets.js"></script>
+    <script src="./views/help.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

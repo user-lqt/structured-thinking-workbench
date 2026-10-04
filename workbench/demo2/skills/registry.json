@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "layout": "skills/<id>/SKILL.md",
+  "kinds": {
+    "structure": "产出结构化数据表",
+    "document": "产出文档",
+    "table": "产出表格",
+    "graphic": "产出图片"
+  },
+  "skills": [
+    { "id": "manifest", "title": "项目信息表", "kind": "structure", "phase": "plan", "status": "ready" },
+    { "id": "wbs", "title": "全周期任务分解表", "kind": "structure", "phase": "plan", "status": "ready" },
+    { "id": "decision-matrix", "title": "方案比选决策矩阵", "kind": "structure", "phase": "plan", "status": "ready" },
+    { "id": "risk-register", "title": "风险台账与分级预案", "kind": "structure", "phase": "prepare", "status": "ready" },
+    { "id": "risk-calibrate", "title": "风险评分校准", "kind": "structure", "phase": "prepare", "status": "ready" },
+    { "id": "change-drill", "title": "突发变更演练处置", "kind": "structure", "phase": "execute", "status": "ready" },
+    { "id": "resource-plan", "title": "人员与资源台账", "kind": "structure", "phase": "prepare", "status": "ready" },
+
+    { "id": "activity-application", "title": "活动申报表", "kind": "table", "phase": "plan", "output": "application", "status": "ready" },
+    { "id": "activity-proposal", "title": "活动策划书", "kind": "document", "phase": "plan", "output": "proposal", "status": "ready" },
+    { "id": "budget-sheet", "title": "预算表", "kind": "table", "phase": "plan", "output": "budgetSheet", "status": "ready" },
+    { "id": "venue-plan", "title": "场地与资源方案", "kind": "document", "phase": "plan", "output": "venuePlan", "status": "ready" },
+    { "id": "staffing-plan", "title": "组织分工与职责表", "kind": "table", "phase": "plan", "output": "staffing", "status": "ready" },
+
+    { "id": "poster", "title": "海报 / 宣传图", "kind": "graphic", "phase": "prepare", "output": "poster", "status": "ready" },
+    { "id": "promo-copy", "title": "宣传文案", "kind": "document", "phase": "prepare", "output": "promoCopy", "status": "ready" },
+    { "id": "signup-form", "title": "报名表 / 报名页", "kind": "table", "phase": "prepare", "output": "signup", "status": "ready" },
+    { "id": "invitation", "title": "邀请函 / 通知稿", "kind": "document", "phase": "prepare", "output": "invitation", "status": "ready" },
+    { "id": "material-list", "title": "物料清单", "kind": "table", "phase": "prepare", "output": "materialList", "status": "ready" },
+    { "id": "shift-table", "title": "排班表", "kind": "table", "phase": "prepare", "output": "shift", "status": "ready" },
+    { "id": "training-brief", "title": "志愿者培训提纲", "kind": "document", "phase": "prepare", "output": "training", "status": "ready" },
+    { "id": "risk-plan", "title": "风险应急预案", "kind": "document", "phase": "prepare", "output": "riskPlan", "status": "ready" },
+
+    { "id": "runbook", "title": "现场执行手册", "kind": "document", "phase": "execute", "output": "runbook", "status": "ready" },
+    { "id": "attendance", "title": "签到表", "kind": "table", "phase": "execute", "output": "attendance", "status": "ready" },
+    { "id": "live-log", "title": "现场记录表", "kind": "table", "phase": "execute", "output": "liveLog", "status": "ready" },
+
+    { "id": "review-report", "title": "复盘报告", "kind": "document", "phase": "close", "output": "review", "status": "ready" },
+    { "id": "news-release", "title": "新闻稿 / 感谢信", "kind": "document", "phase": "close", "output": "news", "status": "ready" },
+    { "id": "settlement", "title": "经费决算表", "kind": "table", "phase": "close", "output": "settlement", "status": "ready" },
+    { "id": "archive-list", "title": "资料归档清单", "kind": "table", "phase": "close", "output": "archive", "status": "ready" }
+  ]
+}

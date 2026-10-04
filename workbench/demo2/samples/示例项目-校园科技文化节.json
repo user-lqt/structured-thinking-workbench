@@ -1,0 +1,314 @@
+{
+  "format": "structured-activity-workbench",
+  "version": 3,
+  "exportedAt": "2026-10-03T10:00:00.000Z",
+  "project": {
+    "basic": {
+      "type": "科技文化节",
+      "name": "2026 校园科技文化节",
+      "date": "2026-11-14",
+      "start": "09:00",
+      "end": "17:00",
+      "venue": "科创中心一层展厅与报告厅",
+      "venueBackup": "体育馆副馆（雨天或场地冲突时启用）",
+      "guests": 600,
+      "budget": 18000,
+      "organizer": "校学生会",
+      "coOrganizer": "待确认",
+      "approval": "需报校团委审批，涉及用电与消防需后勤保障处备案",
+      "audience": "全校本科生与研究生，重点面向大一、大二",
+      "goal": "参与人数不少于 500 人，征集科技作品不少于 40 件，当天完成 4 场主题分享",
+      "content": "作品展区、互动体验区、主题分享会、机器人对抗表演、创意市集五个板块，全天开放，分享会分上下午两场",
+      "constraint": "报告厅 14:00 前不可占用；不可使用餐饮类经费科目"
+    },
+    "outputs": {
+      "application": true,
+      "proposal": true,
+      "optionDecision": true,
+      "budgetSheet": true,
+      "venuePlan": true,
+      "staffing": true,
+      "poster": true,
+      "promoCopy": true,
+      "signup": true,
+      "invitation": true,
+      "materialList": true,
+      "shift": true,
+      "training": true,
+      "riskPlan": true,
+      "runbook": true,
+      "attendance": true,
+      "liveLog": true,
+      "review": true,
+      "news": true,
+      "settlement": true,
+      "archive": true
+    },
+    "meta": {
+      "basic": {
+        "type": "user", "name": "user", "date": "user", "start": "user", "end": "user",
+        "venue": "user", "venueBackup": "ai", "guests": "user", "budget": "user",
+        "organizer": "user", "coOrganizer": "pending", "approval": "user",
+        "audience": "ai", "goal": "user", "content": "user", "constraint": "user"
+      },
+      "outputs": {
+        "application": "ai", "proposal": "user", "optionDecision": "ai", "budgetSheet": "user",
+        "venuePlan": "ai", "staffing": "ai", "poster": "user", "promoCopy": "ai",
+        "signup": "ai", "invitation": "ai", "materialList": "ai", "shift": "ai",
+        "training": "ai", "riskPlan": "user", "runbook": "user", "attendance": "ai",
+        "liveLog": "ai", "review": "user", "news": "ai", "settlement": "ai", "archive": "ai"
+      }
+    },
+    "notes": [
+      "报告厅 14:00 前被占用，分享会需安排在上下午两个时段",
+      "户外展区需准备雨天转场方案",
+      "作品征集与评审规则需与教务处确认口径"
+    ],
+    "createdAt": "2026-10-01T02:00:00.000Z"
+  },
+  "wbs": [
+    { "id": "task-001", "phase": "plan", "task": "组建筹备组并明确分工", "owner": "总协调", "due": "D-30", "duration": 3, "output": "组织分工与职责表", "depends": "", "status": "done", "progress": 100, "milestone": false, "source": "ai" },
+    { "id": "task-002", "phase": "plan", "task": "撰写并提交活动申报表", "owner": "策划组", "due": "D-27", "duration": 2, "output": "活动申报表", "depends": "组建筹备组并明确分工", "status": "done", "progress": 100, "milestone": false, "source": "ai" },
+    { "id": "task-003", "phase": "plan", "task": "完成方案比选与立项决策", "owner": "总协调", "due": "D-25", "duration": 2, "output": "方案比选决策矩阵", "depends": "组建筹备组并明确分工", "status": "done", "progress": 100, "milestone": true, "source": "user" },
+    { "id": "task-004", "phase": "plan", "task": "编写活动策划书", "owner": "策划组", "due": "D-22", "duration": 3, "output": "活动策划书", "depends": "完成方案比选与立项决策", "status": "done", "progress": 100, "milestone": true, "source": "ai" },
+    { "id": "task-005", "phase": "plan", "task": "编制预算表与经费方案", "owner": "后勤组", "due": "D-20", "duration": 3, "output": "预算表", "depends": "编写活动策划书", "status": "doing", "progress": 65, "milestone": false, "source": "ai" },
+    { "id": "task-006", "phase": "plan", "task": "确定场地并制定布置方案", "owner": "后勤组", "due": "D-18", "duration": 3, "output": "场地与资源方案", "depends": "编写活动策划书", "status": "doing", "progress": 40, "milestone": false, "source": "ai" },
+    { "id": "task-007", "phase": "plan", "task": "制定组织分工与志愿者需求", "owner": "总协调", "due": "D-16", "duration": 2, "output": "组织分工与职责表", "depends": "组建筹备组并明确分工", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+
+    { "id": "task-008", "phase": "prepare", "task": "设计并发布宣传物料", "owner": "宣传组", "due": "D-14", "duration": 4, "output": "海报 / 宣传图、宣传文案", "depends": "编写活动策划书", "status": "doing", "progress": 45, "milestone": true, "source": "ai" },
+    { "id": "task-009", "phase": "prepare", "task": "开放报名并统计名单", "owner": "宣传组", "due": "D-14", "duration": 7, "output": "报名表", "depends": "设计并发布宣传物料", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-010", "phase": "prepare", "task": "发出嘉宾邀请与校内通知", "owner": "宣传组", "due": "D-10", "duration": 2, "output": "邀请函 / 通知稿", "depends": "确定场地并制定布置方案", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-011", "phase": "prepare", "task": "编制物料清单并完成采购", "owner": "后勤组", "due": "D-10", "duration": 4, "output": "物料清单", "depends": "编制预算表与经费方案", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-012", "phase": "prepare", "task": "编制排班表并完成志愿者培训", "owner": "执行组", "due": "D-5", "duration": 2, "output": "排班表、志愿者培训提纲", "depends": "制定组织分工与志愿者需求", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-013", "phase": "prepare", "task": "生成风险台账与应急预案", "owner": "总协调", "due": "D-4", "duration": 2, "output": "风险应急预案", "depends": "确定场地并制定布置方案", "status": "todo", "progress": 0, "milestone": true, "source": "user" },
+    { "id": "task-014", "phase": "prepare", "task": "彩排与现场勘验", "owner": "执行组", "due": "D-2", "duration": 1, "output": "现场执行手册", "depends": "编制排班表并完成志愿者培训", "status": "todo", "progress": 0, "milestone": false, "source": "user" },
+
+    { "id": "task-015", "phase": "execute", "task": "场地布置与设备调试", "owner": "后勤组", "due": "D-1", "duration": 1, "output": "", "depends": "彩排与现场勘验", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-016", "phase": "execute", "task": "签到与引导岗位就位", "owner": "执行组", "due": "D-Day", "duration": 1, "output": "签到表", "depends": "场地布置与设备调试", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-017", "phase": "execute", "task": "活动正式进行与现场调度", "owner": "总协调", "due": "D-Day", "duration": 1, "output": "", "depends": "签到与引导岗位就位", "status": "todo", "progress": 0, "milestone": true, "source": "ai" },
+    { "id": "task-018", "phase": "execute", "task": "现场记录与影像采集", "owner": "宣传组", "due": "D-Day", "duration": 1, "output": "现场记录表", "depends": "签到与引导岗位就位", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-019", "phase": "execute", "task": "收场与观众疏散", "owner": "执行组", "due": "D+0", "duration": 1, "output": "", "depends": "活动正式进行与现场调度", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-020", "phase": "execute", "task": "撤场与物资回收", "owner": "后勤组", "due": "D+0", "duration": 1, "output": "", "depends": "收场与观众疏散", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+
+    { "id": "task-021", "phase": "close", "task": "经费决算与票据整理", "owner": "后勤组", "due": "D+2", "duration": 3, "output": "经费决算表", "depends": "撤场与物资回收", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-022", "phase": "close", "task": "归还借用物资与设备", "owner": "后勤组", "due": "D+2", "duration": 2, "output": "", "depends": "撤场与物资回收", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-023", "phase": "close", "task": "素材整理与资料归档", "owner": "宣传组", "due": "D+3", "duration": 3, "output": "资料归档清单", "depends": "现场记录与影像采集", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-024", "phase": "close", "task": "发布新闻稿与致谢", "owner": "宣传组", "due": "D+4", "duration": 2, "output": "新闻稿 / 感谢信", "depends": "素材整理与资料归档", "status": "todo", "progress": 0, "milestone": false, "source": "ai" },
+    { "id": "task-025", "phase": "close", "task": "撰写复盘报告", "owner": "总协调", "due": "D+5", "duration": 2, "output": "复盘报告", "depends": "经费决算与票据整理", "status": "todo", "progress": 0, "milestone": true, "source": "user" },
+    { "id": "task-026", "phase": "close", "task": "召开复盘会并形成结论", "owner": "总协调", "due": "D+6", "duration": 1, "output": "", "depends": "撰写复盘报告", "status": "todo", "progress": 0, "milestone": false, "source": "user" },
+    { "id": "task-027", "phase": "close", "task": "复盘风险处置情况", "owner": "总协调", "due": "D+7", "duration": 1, "output": "", "depends": "召开复盘会并形成结论", "status": "todo", "progress": 0, "milestone": false, "source": "ai" }
+  ],
+  "risks": [
+    { "name": "人群拥挤踩踏", "category": "safety", "phase": "execute", "task": "活动正式进行与现场调度", "probability": 5, "impact": 5, "trigger": "单一入口瞬时人流超过 80 人/分钟，队伍出现回折或推挤", "prevention": "入口分设两条通道并配置蛇形隔离带；按 15 分钟一批次放行；展区总人数控制在 400 人以内（减轻）", "response": "立即停止放行，播放疏散广播，打开两侧备用通道单向疏导；医疗点人员前移待命", "escalation": "现场总协调直接决定暂停入场；涉及受伤立即上报校方保障与 120；恢复需总协调与校方保障共同确认", "owner": "现场总协调", "source": "ai" },
+    { "name": "突发伤病救治不及时", "category": "health", "phase": "execute", "task": "活动正式进行与现场调度", "probability": 3, "impact": 5, "trigger": "有人晕倒、摔伤、明显不适或求助", "prevention": "设置医疗点并配备医药箱；志愿者培训急救首动作；统计已知身体特殊情况（减轻）", "response": "就近志愿者先隔离围观、保持通风，立即呼叫医疗点并拨打 120，同步记录时间与处置过程", "escalation": "医疗点负责人 → 现场总协调 → 校方保障 → 120；是否终止活动由总协调判断并报活动组织者", "owner": "医疗点负责人", "source": "ai" },
+    { "name": "恶劣天气中断户外环节", "category": "weather", "phase": "execute", "task": "场地布置与设备调试", "probability": 4, "impact": 4, "trigger": "降雨、大风或气温骤降，户外展区无法正常开放", "prevention": "提前 48 小时开始跟踪天气；准备体育馆副馆作为转场场地并预置搬运人力（规避）", "response": "启动转场：宣传组同步发布调整通知，后勤组按预定动线转移展品与设备，执行组引导人流改道", "escalation": "总协调在 D-1 18:00 前决定是否启用备用场地；转场中的安全风险升级为高风险流程", "owner": "总协调", "source": "ai" },
+    { "name": "音响设备故障", "category": "tech", "phase": "execute", "task": "场地布置与设备调试", "probability": 4, "impact": 3, "trigger": "话筒无声、啸叫或功放断电", "prevention": "提前 2 小时完成调试并试音；准备备用话筒与转接线；安排专人值守调音台（减轻）", "response": "切换备用话筒，主持人用扩音器维持秩序，技术岗 5 分钟内排查线路", "escalation": "技术岗 → 执行组负责人 → 总协调；超过 15 分钟未恢复则调整环节顺序", "owner": "技术岗", "source": "ai" },
+    { "name": "用电超负荷跳闸", "category": "venue", "phase": "execute", "task": "场地布置与设备调试", "probability": 3, "impact": 4, "trigger": "多个大功率设备同时启用，配电箱发热或跳闸", "prevention": "提前核算总负荷并分配到不同回路；大功率设备错峰启用；不私拉乱接（规避）", "response": "立即断开非必要设备，检查配电箱，通知后勤保障处；禁止自行复位总闸", "escalation": "后勤组 → 总协调 → 后勤保障处；涉及火灾隐患立即上报 119", "owner": "后勤组", "source": "ai" },
+    { "name": "嘉宾临时缺席", "category": "program", "phase": "execute", "task": "发出嘉宾邀请与校内通知", "probability": 3, "impact": 4, "trigger": "分享会开始前 24 小时内收到无法到场通知", "prevention": "至少确认 4 位分享嘉宾并保留 1 位备选；提前收集讲稿或录播预案（减轻）", "response": "启用备选嘉宾或改为播放录制内容，主持人压缩问答时长填补空档", "escalation": "宣传组 → 总协调；是否调整整体流程由总协调决定", "owner": "宣传组负责人", "source": "ai" },
+    { "name": "场地临时被占用", "category": "venue", "phase": "prepare", "task": "确定场地并制定布置方案", "probability": 2, "impact": 4, "trigger": "学校临时安排其他活动占用报告厅或展厅", "prevention": "提前完成书面借用手续并留存凭证；与场馆管理方建立联系人（规避）", "response": "启用备用场地，按转场清单调整布置与人流引导", "escalation": "后勤组 → 总协调 → 校方场馆管理部门；不得自行占用其他场地", "owner": "后勤组", "source": "ai" },
+    { "name": "报名人数不足", "category": "participation", "phase": "prepare", "task": "开放报名并统计名单", "probability": 3, "impact": 3, "trigger": "D-5 时报名数低于目标的 60%", "prevention": "分三轮推送宣传；在班级群与社团渠道定向扩散；设置现场报名通道（减轻）", "response": "追加一轮定向宣传并联系社团集中报名，必要时调整展位数量与物料规模", "escalation": "宣传组 → 总协调；是否缩减规模由总协调与策划组共同决定", "owner": "宣传组负责人", "source": "ai" },
+    { "name": "流程延误超出缓冲", "category": "program", "phase": "execute", "task": "活动正式进行与现场调度", "probability": 4, "impact": 3, "trigger": "某环节比 Rundown 落后 10 分钟以上", "prevention": "每环节预留 10 分钟缓冲；设置计时岗并在落后 5 分钟时提示（减轻）", "response": "压缩问答与自由交流时长，或调整环节先后顺序，保证核心环节不受影响", "escalation": "计时岗 → 现场总协调；是否需要砍环节由总协调决定", "owner": "现场总协调", "source": "ai" },
+    { "name": "物料未按时到位", "category": "finance", "phase": "prepare", "task": "编制物料清单并完成采购", "probability": 3, "impact": 4, "trigger": "D-3 时关键物料（横幅、证书、隔离带）仍未到货", "prevention": "关键物料提前 7 天下单并留存单号；准备替代方案（如电子证书、手写标识）（减轻）", "response": "启用替代方案或就近采购，同步调整现场布置", "escalation": "后勤组 → 总协调；产生的额外支出需走预算调整流程", "owner": "后勤组", "source": "ai" },
+    { "name": "未完成审批报备", "category": "compliance", "phase": "plan", "task": "撰写并提交活动申报表", "probability": 2, "impact": 5, "trigger": "D-10 时审批仍未完成，或用电消防未备案", "prevention": "申报材料提前 30 天提交；建立审批进度台账并每周跟进（规避）", "response": "暂停对外宣传中的场地承诺，补齐材料并走加急流程；未获批前不得使用大功率设备", "escalation": "策划组 → 总协调 → 校团委；未获批不得开展活动，由总协调确认", "owner": "策划组负责人", "source": "ai" },
+    { "name": "宣传信息与实际不符", "category": "publicity", "phase": "prepare", "task": "设计并发布宣传物料", "probability": 3, "impact": 3, "trigger": "宣传物料中的时间、地点、参与方式与最终方案不一致", "prevention": "发布前由总协调统一核对口径；物料版本号统一管理（规避）", "response": "立即下架错误物料并发布更正说明，登记影响范围", "escalation": "宣传组 → 总协调；涉及对外承诺或舆情的升级到活动组织者", "owner": "宣传组负责人", "source": "ai" },
+    { "name": "网络中断影响直播", "category": "tech", "phase": "execute", "task": "现场记录与影像采集", "probability": 3, "impact": 3, "trigger": "直播卡顿、断流或校园网不可用", "prevention": "准备移动网络备份；提前录制备用素材（减轻）", "response": "切换移动网络，无法恢复时改为录播延后发布", "escalation": "技术岗 → 宣传组 → 总协调", "owner": "技术岗", "source": "ai" },
+    { "name": "核心目标不清晰导致验收争议", "category": "program", "phase": "plan", "task": "编写活动策划书", "probability": 2, "impact": 3, "trigger": "目标写成口号，收尾时无法判断是否达成", "prevention": "立项时把目标改写成可核验指标（人数、作品数、场次）（规避）", "response": "复盘前补齐口径说明，按可量化的部分判定达成度", "escalation": "策划组 → 总协调", "owner": "策划组负责人", "source": "ai" },
+    { "name": "志愿者岗位交接遗漏", "category": "program", "phase": "execute", "task": "编制排班表并完成志愿者培训", "probability": 3, "impact": 2, "trigger": "换班时出现空岗或职责不清", "prevention": "交接采用「对讲确认 + 纸质签到」双确认；关键岗位写明替补（减轻）", "response": "由执行组临时调配机动人员补位，并在记录表登记", "escalation": "执行组负责人 → 现场总协调", "owner": "执行组负责人", "source": "ai" },
+    { "name": "纪念品与奖品余量不足", "category": "finance", "phase": "prepare", "task": "编制物料清单并完成采购", "probability": 2, "impact": 2, "trigger": "发放过半时剩余数量低于预估到场人数", "prevention": "按报名数的 1.1 倍备货；设置发放登记（减轻）", "response": "改为登记后补寄或发放电子纪念凭证", "escalation": "后勤组 → 总协调", "owner": "后勤组", "source": "ai" },
+    { "name": "现场垃圾清运不及时", "category": "venue", "phase": "close", "task": "撤场与物资回收", "probability": 4, "impact": 1, "trigger": "展区垃圾堆积、垃圾桶溢出", "prevention": "按区域配置垃圾桶并安排每 2 小时巡收（减轻）", "response": "调用机动人员集中清理，联系场馆保洁协同", "escalation": "后勤组 → 执行组负责人", "owner": "后勤组", "source": "ai" },
+    { "name": "影像素材不足影响宣传", "category": "program", "phase": "close", "task": "素材整理与资料归档", "probability": 3, "impact": 2, "trigger": "收尾时可用于新闻稿的照片少于 10 张或缺关键环节", "prevention": "拍摄清单提前下发，按环节指定必拍画面（减轻）", "response": "从观众投稿与直播回放中补采，并调整新闻稿配图方案", "escalation": "宣传组 → 总协调", "owner": "宣传组负责人", "source": "ai" },
+    { "name": "观众体验落差引发投诉", "category": "participation", "phase": "close", "task": "召开复盘会并形成结论", "probability": 2, "impact": 2, "trigger": "出现集中投诉：排队久、体验项目关闭、指引不清", "prevention": "现场设置意见反馈点并当日收集（减轻）", "response": "24 小时内统一回复并说明改进措施，登记投诉台账", "escalation": "宣传组 → 总协调；涉及对外舆情的升级到活动组织者", "owner": "宣传组负责人", "source": "ai" }
+  ],
+  "riskCompliance": [
+    "涉及用电与消防的展区须提前向后勤保障处备案，未备案不得启用大功率设备",
+    "作品与影像涉及肖像权、著作权，发布前需取得作者与出镜者同意",
+    "活动场地借用与审批凭证需留存归档，作为合规证明材料"
+  ],
+  "options": {
+    "selected": [
+      { "id": "opt-a", "name": "方案 A：主会场集中式", "summary": "全部板块集中在科创中心，单一主会场、单日完成" },
+      { "id": "opt-b", "name": "方案 B：分会场分布式", "summary": "展区、分享会、市集分散在三个场地同步进行" },
+      { "id": "opt-c", "name": "方案 C：线上线下混合", "summary": "线下小型展区 + 线上直播与云端展厅" }
+    ],
+    "criteria": [
+      { "key": "goal", "label": "目标契合度", "weight": 5, "hint": "是否直接支撑核心目标" },
+      { "key": "feasible", "label": "可行性", "weight": 4, "hint": "时间、场地、人力是否支撑得住" },
+      { "key": "cost", "label": "成本可控", "weight": 4, "hint": "预算内且弹性足够" },
+      { "key": "risk", "label": "风险可控", "weight": 5, "hint": "安全、合规、舆情风险是否可接受" },
+      { "key": "impact", "label": "参与体验", "weight": 4, "hint": "对目标受众的吸引力" },
+      { "key": "reuse", "label": "可复用性", "weight": 2, "hint": "能否沉淀为下次可复用的做法" }
+    ],
+    "scores": {
+      "方案 A：主会场集中式": {
+        "目标契合度": 5, "目标契合度__reason": "单日集中，人数与作品数目标最容易达成",
+        "可行性": 4, "可行性__reason": "只需一个场地，但报告厅 14:00 前不可占用，需压缩上半天",
+        "成本可控": 4, "成本可控__reason": "布置一次到位，重复投入少",
+        "风险可控": 3, "风险可控__reason": "人流集中，拥堵与踩踏风险最高",
+        "参与体验": 4, "参与体验__reason": "氛围集中，但排队时间较长",
+        "可复用性": 4, "可复用性__reason": "流程与物料均可沿用"
+      },
+      "方案 B：分会场分布式": {
+        "目标契合度": 4, "目标契合度__reason": "覆盖面广，但单点人流统计口径复杂",
+        "可行性": 3, "可行性__reason": "需要三套人力与设备，志愿者缺口明显",
+        "成本可控": 2, "成本可控__reason": "设备与物料重复配置，预算压力大",
+        "风险可控": 3, "风险可控__reason": "单点风险降低，但总协调难度上升",
+        "参与体验": 5, "参与体验__reason": "就近参与，等待时间短",
+        "可复用性": 3, "可复用性__reason": "依赖多点场地，复用条件较高"
+      },
+      "方案 C：线上线下混合": {
+        "目标契合度": 4, "目标契合度__reason": "线上可放大触达，但作品征集仍靠线下",
+        "可行性": 4, "可行性__reason": "线下规模小，场地压力最小",
+        "成本可控": 3, "成本可控__reason": "需额外投入直播与网络保障",
+        "风险可控": 4, "风险可控__reason": "现场人数少，安全风险低；但存在断流风险",
+        "参与体验": 3, "参与体验__reason": "线上互动弱，体验感打折",
+        "可复用性": 5, "可复用性__reason": "云端展厅可持续使用，沉淀价值高"
+      }
+    },
+    "decision": "选定方案 A（主会场集中式）为主，吸收方案 C 的云端展厅作为补充。理由：核心目标围绕参与人数与作品数量，集中办会的达成度最高；预算与人力只够支撑一个主会场；分布式方案的人力缺口在志愿者招募未落实前不可控。云端展厅作为低成本的补充手段保留，用于扩大触达。放弃方案 B，主要因为需要三套设备与人力，在现有预算与志愿者规模下不可行。需在 D-14 前完成报告厅 14:00 前占用的协调，否则改用方案 C 为主。",
+    "note": "本决策假设志愿者可招募到 40 人以上；若 D-10 时仍不足 25 人，需重新评估并回退到方案 C。"
+  },
+  "gates": {
+    "plan": { "goal": true, "scope": true, "budget": true, "option": false },
+    "prepare": { "promo": true },
+    "execute": {},
+    "close": {}
+  },
+  "materials": {
+    "proposal": {
+      "title": "2026 校园科技文化节｜活动策划书",
+      "templateName": "默认章节",
+      "source": "ai",
+      "generatedAt": "2026-10-02T06:30:00.000Z",
+      "sections": [
+        { "heading": "一、活动背景与目标", "body": "校园科技文化节是面向全校学生的年度科技类品牌活动。本年度目标围绕可核验指标设定：\n\n- 参与人数不少于 500 人\n- 征集科技作品不少于 40 件\n- 当天完成 4 场主题分享\n\n目标口径以签到统计与作品登记表为准，收尾时逐项核对。" },
+        { "heading": "二、活动对象与规模", "body": "面向全校本科生与研究生，重点覆盖大一、大二学生。预计到场 600 人（含工作人员与参展团队），展区同时容纳人数控制在 400 人以内，超过即启动分流。" },
+        { "heading": "三、活动内容与流程", "body": "全天开放五个板块：\n\n1. 作品展区：参展作品按类别分区陈列\n2. 互动体验区：设 4 个体验工位，排队分流\n3. 主题分享会：上下午各两场，报告厅进行\n4. 机器人对抗表演：每日两场定时上演\n5. 创意市集：社团与学生团队自主摊位\n\n各环节顺序与时间以《现场执行手册》的 Rundown 为准。" },
+        { "heading": "四、时间与场地安排", "body": "日期：2026-11-14，09:00–17:00。\n\n- 主场地：科创中心一层展厅与报告厅\n- 备用场地：体育馆副馆（雨天或场地冲突时启用）\n- 限制：报告厅 14:00 前不可占用，分享会需安排为上午场与下午场\n\n关键节点：D-1 完成布置与设备调试，D-Day 08:00 完成入场准备。" },
+        { "heading": "五、组织分工", "body": "设总协调一名，下设四个组：\n\n| 组别 | 职责 | 关键交付物 |\n|---|---|---|\n| 策划组 | 方案、申报、文档 | 活动申报表、活动策划书 |\n| 宣传组 | 宣传、报名、影像 | 海报、宣传文案、报名表 |\n| 后勤组 | 场地、物料、经费 | 场地与资源方案、物料清单、预算表 |\n| 执行组 | 排班、现场、收尾 | 排班表、现场执行手册 |\n\n各组向总协调汇报，异常情况按升级链上报。" },
+        { "heading": "六、预算与经费", "body": "预算上限 18000 元，按场地设备、物料制作、宣传品、人员劳务、奖品纪念品、运输搬运、应急预留七类分科目核算，其中应急预留不低于总额 5%。分项金额与总额以《预算表》为准，最终支出以《经费决算表》核对。\n\n不可使用餐饮类经费科目。" },
+        { "heading": "七、宣传与报名", "body": "宣传分三轮：D-14 发布主推文与海报，D-7 推送报名提醒，D-3 发布流程与到场指引。渠道覆盖校内公众号、班级群与社团群。\n\n报名通过线上表单收集，D-7 截止并完成名单统计，现场保留少量现场报名名额。报名方式与链接：待确认。" },
+        { "heading": "八、风险与应急预案", "body": "已识别 19 项风险，其中高风险 3 项：人群拥挤踩踏（25 分）、恶劣天气中断户外环节（16 分）、突发伤病救治不及时（15 分）。\n\n分级响应原则：\n\n- 高风险：总协调立即介入，涉及人身安全先暂停或疏散，恢复需总协调与校方保障共同确认\n- 中风险：责任人执行预防或替代方案，超时即升级\n- 低风险：跟踪记录，条件变化时重新评估\n\n完整台账与处置流程见《风险应急预案》。" }
+      ]
+    }
+  },
+  "templates": [],
+  "materialTemplates": {},
+  "assets": [
+    {
+      "id": "asset-slogan",
+      "name": "主标语候选",
+      "kind": "text",
+      "content": "让创意被看见——2026 校园科技文化节，作品、体验、分享一次到位。",
+      "tags": ["宣传", "口号"],
+      "phase": "plan",
+      "note": "主视觉与海报统一使用这句标语",
+      "createdAt": "2026-10-01T05:00:00.000Z"
+    },
+    {
+      "id": "asset-venue",
+      "name": "科创中心展区动线说明",
+      "kind": "text",
+      "content": "一层展厅为主展区（作品陈列 + 互动体验），报告厅为分享会场；14:00 前报告厅另有课程占用，上午场次需安排在展厅中庭。",
+      "tags": ["场地", "动线"],
+      "phase": "prepare",
+      "note": "撰写执行手册与场地安排时的硬约束",
+      "createdAt": "2026-10-01T05:10:00.000Z"
+    },
+    {
+      "id": "asset-prev-news",
+      "name": "往届活动推文参考",
+      "kind": "link",
+      "url": "https://example.edu.cn/news/2025-tech-festival",
+      "tags": ["参考", "文风"],
+      "phase": "plan",
+      "note": "新闻稿语气与配图风格参考",
+      "createdAt": "2026-10-01T05:20:00.000Z"
+    }
+  ],
+  "poster": {
+    "title": "2026 校园科技文化节",
+    "subtitle": "让创意被看见",
+    "time": "2026-11-14 09:00",
+    "place": "科创中心一层展厅与报告厅",
+    "org": "校学生会",
+    "slogan": "作品 · 体验 · 分享",
+    "theme": "tech",
+    "layout": "center"
+  },
+  "resources": [
+    { "id": "res-staff-vol", "name": "志愿者", "kind": "staff", "phase": "execute", "unit": "人", "available": 30, "assigned": 36, "owner": "志愿者负责人", "note": "含引导、签到、秩序维护", "source": "user" },
+    { "id": "res-staff-crew", "name": "工作人员", "kind": "staff", "phase": "prepare", "unit": "人", "available": 12, "assigned": 12, "owner": "活动总协调", "note": "筹备期物料与对接", "source": "user" },
+    { "id": "res-venue-hall", "name": "主会场报告厅", "kind": "venue", "phase": "execute", "unit": "处", "available": 1, "assigned": 1, "owner": "场地负责人", "note": "含 200 座与投影", "source": "user" },
+    { "id": "res-venue-backup", "name": "备用场地（体育馆副馆）", "kind": "venue", "phase": "execute", "unit": "处", "available": 1, "assigned": 0, "owner": "场地负责人", "note": "雨天或场地冲突时启用", "source": "user" },
+    { "id": "res-eq-mic", "name": "无线麦克风", "kind": "equipment", "phase": "execute", "unit": "台", "available": 4, "assigned": 6, "owner": "技术负责人", "note": "含备用 2 台，仍缺 2 台待借", "source": "user" },
+    { "id": "res-eq-proj", "name": "投影与切换台", "kind": "equipment", "phase": "execute", "unit": "台", "available": 1, "assigned": 1, "owner": "技术负责人", "note": "需提前 1 小时调试", "source": "user" },
+    { "id": "res-mat-truss", "name": "桁架与喷绘", "kind": "material", "phase": "prepare", "unit": "件", "available": 8, "assigned": 8, "owner": "物料负责人", "note": "含主背景与指引牌", "source": "user" },
+    { "id": "res-fund", "name": "活动经费", "kind": "fund", "phase": "plan", "unit": "元", "available": 18000, "assigned": 16500, "owner": "财务负责人", "note": "不占用餐饮科目", "source": "user" },
+    { "id": "res-vehicle", "name": "物料运输车辆", "kind": "vehicle", "phase": "prepare", "unit": "辆", "available": 2, "assigned": 3, "owner": "后勤负责人", "note": "往返科创中心，缺口靠租用补齐", "source": "user" }
+  ],
+  "drills": [
+    {
+      "id": "drill-venue-01",
+      "scenarioId": "venue-unavailable",
+      "title": "主场地临时不可用",
+      "category": "venue",
+      "phase": "execute",
+      "riskName": "主场地临时不可用",
+      "startedAt": "2026-10-03T01:00:00.000Z",
+      "finishedAt": "2026-10-03T01:32:00.000Z",
+      "decisions": "选择启用备用场地而不是顺延：嘉宾返程时间不可调整。同步压缩暖场与合影，保住主题分享与作品展评两条主线。",
+      "outcome": "演练用时 32 分钟，从接到通知到备用场地可用约 25 分钟；暴露出备用场地无投影、指引牌数量不足两个问题。",
+      "rollback": "若 60 分钟内原场地恢复，则压缩暖场环节顺延回原场地，主线延迟不超过 30 分钟",
+      "followUp": ["把备用场地启用条件与检查清单写入风险应急预案", "与场馆方确认书面占用协议"],
+      "writeRisk": true,
+      "status": "done",
+      "steps": [
+        { "id": "venue-unavailable-s1", "text": "确认封锁范围与预计恢复时间，判断是等待还是切换场地", "done": true, "note": "场馆方答复至少 3 小时，判定为切换" },
+        { "id": "venue-unavailable-s2", "text": "启动备用场地，派人先行到场检查电力、桌椅与投影", "done": true, "note": "发现副馆无投影，需临时调用移动投影" },
+        { "id": "venue-unavailable-s3", "text": "在入口与报名群同步发布场地变更通知并更新指引牌", "done": true, "note": "指引牌仅 3 块，需要补印" },
+        { "id": "venue-unavailable-s4", "text": "压缩可裁剪环节（暖场、合影），保证核心议程完整", "done": true, "note": "压缩 20 分钟" },
+        { "id": "venue-unavailable-s5", "text": "通知嘉宾与评委新的到场地点与时间", "done": true, "note": "评委 3 人全部确认" },
+        { "id": "venue-unavailable-s6", "text": "记录本次变更的时间线，作为后续复盘依据", "done": true, "note": "已归档到变更记录" }
+      ],
+      "source": "user"
+    },
+    {
+      "id": "drill-weather-01",
+      "scenarioId": "weather-rain",
+      "title": "突降暴雨或大风",
+      "category": "weather",
+      "phase": "execute",
+      "riskName": "突降暴雨或大风",
+      "startedAt": "2026-10-03T02:10:00.000Z",
+      "finishedAt": "2026-10-03T02:38:00.000Z",
+      "decisions": "户外展区遇强降雨时立即转入室内静态展，不等待天气好转；先断电再搬展品，避免漏电与坠物。",
+      "outcome": "演练用时 28 分钟，转移 500 人规模用时 14 分钟；确认室内展厅容量可容纳 60% 展位，剩余展位改为图片展板。",
+      "rollback": "雨势减弱且风力降至 5 级以下，经总协调确认后恢复户外环节",
+      "followUp": ["把雨天替代方案写入场地与资源方案", "为户外桁架补充配重与防风措施"],
+      "writeRisk": true,
+      "status": "done",
+      "steps": [
+        { "id": "weather-rain-s1", "text": "立即停止户外环节，引导人员按预定路线转移到室内", "done": true, "note": "14 分钟完成转移" },
+        { "id": "weather-rain-s2", "text": "切断户外临时用电，收回易被吹落的展板与桁架", "done": true, "note": "先断电后搬运" },
+        { "id": "weather-rain-s3", "text": "清点人数与贵重设备，确认无人滞留", "done": true, "note": "清点结果无滞留" },
+        { "id": "weather-rain-s4", "text": "启用雨天替代方案，把户外展示改为室内静态展", "done": true, "note": "60% 展位可转入室内" },
+        { "id": "weather-rain-s5", "text": "天气好转前不恢复户外活动，由总协调统一发布", "done": true, "note": "指定唯一发布口径" }
+      ],
+      "source": "user"
+    }
+  ],
+  "log": [
+    { "at": "2026-10-01T02:00:00.000Z", "kind": "project", "detail": "建立项目信息表" },
+    { "at": "2026-10-01T02:05:00.000Z", "kind": "ai", "detail": "AI 补全 3 个字段，推荐 21 项产出" },
+    { "at": "2026-10-01T03:10:00.000Z", "kind": "decision", "detail": "载入方案比选预设" },
+    { "at": "2026-10-02T01:20:00.000Z", "kind": "wbs", "detail": "生成任务分解 27 项" },
+    { "at": "2026-10-02T02:40:00.000Z", "kind": "risk", "detail": "生成风险清单 19 项" },
+    { "at": "2026-10-02T02:41:00.000Z", "kind": "risk", "detail": "重新校准 19 项风险评分" },
+    { "at": "2026-10-02T06:30:00.000Z", "kind": "material", "detail": "生成《活动策划书》" },
+    { "at": "2026-10-03T00:15:00.000Z", "kind": "gate", "detail": "前期策划检查点「核心目标已写成可核验的指标」已确认" }
+    ,{ "at": "2026-10-03T02:00:00.000Z", "kind": "resource", "detail": "登记人员与资源台账 9 项，发现 3 处占用冲突" }
+    ,{ "at": "2026-10-03T02:38:00.000Z", "kind": "drill", "detail": "结束演练：主场地临时不可用，处置 6/6 步" }
+    ,{ "at": "2026-10-03T02:39:00.000Z", "kind": "risk", "detail": "演练结论已写入风险台账：主场地临时不可用" }
+    ,{ "at": "2026-10-03T03:05:00.000Z", "kind": "drill", "detail": "结束演练：突降暴雨或大风，处置 5/5 步" }
+  ]
+}
