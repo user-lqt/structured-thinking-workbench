@@ -162,6 +162,171 @@ window.WB = window.WB || {};
     return lines.join('\n');
   }
 
+
+
+  /* ── 材料 → Word / Excel ─────────────────────
+     主交付格式按产出类型定：表格型 → Excel，正文型 → Word，图形型走海报导出。
+     三种格式随时都能导出，主格式只决定默认按钮。 */
+  const FORMAT_LABEL = { docx: 'Word', xlsx: 'Excel', md: 'Markdown' };
+  const PRIMARY_FORMAT = { table: 'xlsx', document: 'docx', structure: 'xlsx', graphic: 'md' };
+  const primaryFormat = (item) => PRIMARY_FORMAT[item?.kind] || 'md';
+
+  /* ── 发票栏 ─────────────────────────────
+     附件存在 doc.invoices 里，键是「章节:表块:行」；预览与导出时才拼成表格的一列，
+     不写回正文，避免和附件数据互相污染。 */
+  const MONEY_RE = /金额|预算|费用|单价|合计|经费|决算/;
+  const invoiceKey = (sectionIndex, blockIndex, rowIndex) => `${sectionIndex}:${blockIndex}:${rowIndex}`;
+  const invoicesOf = (doc, key) => (doc && doc.invoices && doc.invoices[key]) || [];
+
+  /* ── 合计行：数值由上方各行自动累加，不能编辑也不能删除 ──
+     识别「合计 / 总计 / 小计」；只重算原本就是数字的格，单价、占比（%）这类不动。 */
+  const TOTAL_RE = /合计|总计|小计/;
+  const isTotalRow = (cells) => (cells || []).some((cell) => TOTAL_RE.test(String(cell ?? '')));
+
+  /* 容忍 ¥ / ￥ / 千分位 / 尾随「元」；带 % 的占比一律不参与求和 */
+  function numericOf(value) {
+    const text = String(value ?? '').trim();
+    if (!text || text.includes('%')) return null;
+    const cleaned = text.replace(/[¥￥,，\s]/g, '').replace(/元$/, '');
+    if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+    return Number(cleaned);
+  }
+
+  const formatNumber = (value) => (Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100));
+
+  /* 占比列：表头叫「占比 / 比例 / 百分比 / 份额」，或该列有格子写成 xx% */
+  const SHARE_RE = /占比|比例|百分比|份额/;
+  const SHARE_CELL_RE = /^-?\d+(\.\d+)?\s*%$/;
+  const isShareCell = (value) => SHARE_CELL_RE.test(String(value ?? '').trim());
+  const BASE_RE = /金额|费用|总额|预算|支出|收入|经费|价款|合价|小计|合计/;
+  const shareText = (ratio) => `${Math.round(ratio * 1000) / 10}%`;
+
+  /* 一张表的派生列：哪些列求和（sumCols）、哪些列是占比（shareCols）、占比以哪一列为基数（baseCol） */
+  function columnPlan(header, rows) {
+    const list = rows || [];
+    const head = header || [];
+    const width = Math.max(head.length, 0, ...list.map((cells) => cells.length));
+    const columns = Array.from({ length: width }, (_, col) => col);
+    const totalRows = list.filter((cells) => isTotalRow(cells));
+    const sumCols = totalRows.length
+      ? columns.filter((col) => totalRows.some((cells) => numericOf(cells[col]) !== null))
+      : [];
+    const shareCols = columns.filter((col) => SHARE_RE.test(String(head[col] ?? ''))
+      || list.some((cells) => !isTotalRow(cells) && isShareCell(cells[col])));
+    const baseCol = sumCols.find((col) => BASE_RE.test(String(head[col] ?? '')))
+      ?? sumCols[0]
+      ?? columns.find((col) => !shareCols.includes(col) && BASE_RE.test(String(head[col] ?? '')));
+    return { sumCols, shareCols, baseCol: baseCol === undefined ? -1 : baseCol };
+  }
+
+  /* 合计行的数字格 = 上方各行之和；占比列 = 该行金额 ÷ 合计金额。两者都由明细实时派生。 */
+  function applyTotals(header, rows) {
+    const list = rows || [];
+    if (!list.length) return list;
+    const plan = columnPlan(header, list);
+    if (!plan.sumCols.length && !plan.shareCols.length) return list;
+    const body = list.filter((cells) => !isTotalRow(cells));
+    if (!body.length) return list;
+    const sumOf = (col) => {
+      const values = body.map((cells) => numericOf(cells[col])).filter((value) => value !== null);
+      return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+    };
+    const totals = new Map();
+    const totalOf = (col) => { if (!totals.has(col)) totals.set(col, sumOf(col)); return totals.get(col); };
+    plan.sumCols.forEach(totalOf);
+    if (plan.baseCol >= 0) totalOf(plan.baseCol);
+    const base = plan.baseCol >= 0 ? totalOf(plan.baseCol) : null;
+    return list.map((cells) => {
+      const total = isTotalRow(cells);
+      return cells.map((original, col) => {
+        if (total) {
+          if (plan.sumCols.includes(col) && numericOf(original) !== null) {
+            const value = totalOf(col);
+            if (value !== null) return formatNumber(value);
+          }
+          if (plan.shareCols.includes(col) && base) return '100%';
+          return original ?? '';
+        }
+        if (plan.shareCols.includes(col) && base) {
+          const amount = numericOf(cells[plan.baseCol]);
+          if (amount !== null) return shareText(amount / base);
+        }
+        return original ?? '';
+      });
+    });
+  }
+  /* 金额表才挂发票栏：表头出现金额 / 单价 / 费用 / 合计，或章节名带预算 / 经费 / 决算 */
+  const isMoneyTable = (header, heading) => {
+    const cells = (header || []).map((cell) => String(cell ?? ''));
+    if (cells.some((cell) => /发票/.test(cell))) return true;
+    if (cells.some((cell) => /金额|单价|费用|合计/.test(cell))) return true;
+    return MONEY_RE.test(String(heading ?? ''));
+  };
+
+  /* 导出前先把合计行重算到位，再在真有附件时补「发票」列；空列不出现在成品里 */
+  function withInvoices(doc, sectionIndex, blocks) {
+    return blocks.map((block, blockIndex) => {
+      if (block.type !== 'table') return block;
+      const rows = applyTotals(block.header, block.rows);
+      const attached = rows.map((_, rowIndex) => invoicesOf(doc, invoiceKey(sectionIndex, blockIndex, rowIndex)));
+      if (!attached.some((files) => files.length)) return { ...block, rows };
+      const width = Math.max(block.header.length, ...rows.map((row) => row.length), 1);
+      const pad = (cells) => Array.from({ length: width }, (_, col) => cells[col] ?? '');
+      return {
+        ...block,
+        header: [...block.header, '发票'],
+        rows: rows.map((cells, rowIndex) => [...pad(cells),
+          isTotalRow(cells) ? '' : (attached[rowIndex] || []).map((file) => file.name).join('、')])
+      };
+    });
+  }
+
+  /* 文档正文 → 结构块：章节标题作为一级标题，正文交给 Markdown 解析 */
+  const docBlocks = (doc) => doc.sections.flatMap((section, sectionIndex) => [
+    { type: 'heading', level: 1, text: section.heading },
+    ...withInvoices(doc, sectionIndex, window.WB.markdown.parseBlocks(section.body))
+  ]);
+
+  /* Word 导出：挂了参考件就带上它的版式套件（字体 / 页边距 / 页眉页脚 / 表格线），
+     正文仍是当前材料的章节；「按参考重排」过的正文天然就在这里。 */
+  const styleFor = (key) => window.WB.store.state.references?.[key]?.kit || null;
+  const materialToDocx = (doc, options = {}) => window.WB.ooxml.docx({
+    title: doc.title,
+    blocks: docBlocks(doc),
+    style: options.style ?? null
+  });
+
+  /* 每个章节一张工作表：含表格的取表格（首行表头），纯正文的按行铺开 */
+  function materialToXlsx(doc) {
+    const sheets = doc.sections.map((section, sectionIndex) => {
+      const blocks = withInvoices(doc, sectionIndex, window.WB.markdown.parseBlocks(section.body));
+      const table = blocks.find((block) => block.type === 'table');
+      if (table) return { name: section.heading, rows: (table.header.some((cell) => String(cell ?? '').trim()) ? [table.header, ...table.rows] : table.rows) };
+      const lines = [];
+      for (const block of blocks) {
+        if (block.type === 'heading') lines.push([block.text]);
+        else if (block.type === 'list') block.items.forEach((item) => lines.push([`· ${item}`]));
+        else if (block.type === 'quote') lines.push([block.text]);
+        else if (block.type === 'paragraph') block.lines.forEach((line) => lines.push([line]));
+      }
+      return { name: section.heading, rows: lines.length ? [['内容'], ...lines] : [['（本章暂无内容）']] };
+    });
+    return window.WB.ooxml.xlsx({ title: doc.title, sheets });
+  }
+
+  /* 材料包：一份 Word 汇总全部已生成材料 */
+  function materialsPackDocx() {
+    const state = window.WB.store.state;
+    const items = OUTPUT_ITEMS.filter((item) => state.materials[item.key]);
+    const blocks = [];
+    items.forEach((item, index) => {
+      if (index) blocks.push({ type: 'hr' });
+      blocks.push(...docBlocks(state.materials[item.key]));
+    });
+    /* 材料包用第一份挂得住的参考版式，整本看起来是学校那份表的样式 */
+    const style = OUTPUT_ITEMS.map((item) => styleFor(item.key)).find(Boolean) || null;
+    return window.WB.ooxml.docx({ title: `${projectName()}｜过程材料包`, blocks, style });
+  }
   const materialToMarkdown = (doc) => [`# ${doc.title}`, '', ...doc.sections.map((section) => `## ${section.heading}\n\n${section.body}`)].join('\n\n');
 
   function resourcesToMarkdown() {
@@ -266,6 +431,20 @@ window.WB = window.WB || {};
     resourcesToMarkdown,
     drillsToMarkdown,
     materialToMarkdown,
+    materialToDocx,
+    styleFor,
+    materialToXlsx,
+    materialsPackDocx,
+    primaryFormat,
+    FORMAT_LABEL,
+    isMoneyTable,
+    invoiceKey,
+    isTotalRow,
+    applyTotals,
+    columnPlan,
+    isShareCell,
+    invoicesOf,
+    withInvoices,
     materialsPack,
     logToMarkdown,
     fullArchive

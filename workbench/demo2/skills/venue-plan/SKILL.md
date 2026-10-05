@@ -3,6 +3,7 @@ name: venue-plan
 title: 场地与资源方案
 kind: document
 phase: plan
+deliverable: word
 description: 论证场地选型、布置方案、设备需求与安全要求，并给出备用切换方案。
 ---
 
@@ -49,3 +50,10 @@ description: 论证场地选型、布置方案、设备需求与安全要求，�
 - [ ] 含分区、动线、疏散与医疗点
 - [ ] 备用方案有触发条件、动作、决策人与时限
 - [ ] 未编造面积、功率与租金
+
+## 交付格式
+
+- **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
+- **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
+- **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
+- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。

@@ -3,6 +3,7 @@ name: staffing-plan
 title: 组织分工与职责表
 kind: table
 phase: plan
+deliverable: excel
 description: 搭出活动组织架构、岗位职责与汇报关系，明确每个角色的边界与交付物。
 ---
 
@@ -48,3 +49,10 @@ description: 搭出活动组织架构、岗位职责与汇报关系，明确每�
 - [ ] 岗位覆盖任务分解表中的全部负责角色
 - [ ] 每个岗位有交付物与汇报对象
 - [ ] 未出现具体人名
+
+## 交付格式
+
+- **主交付**：Excel 工作簿（`.xlsx`）。每个章节一张工作表，表格首行为表头并冻结；纯正文章节按行铺开。
+- **备选**：Word（`.docx`）与 Markdown（`.md`），内容与工作簿一致。
+- **导出入口**：「过程材料」卡片上的 `Excel` / `Word` / `Markdown` 按钮（`Excel` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToXlsx(doc)` / `materialToDocx(doc)`。
+- **写作要求**：每章用 Markdown 管道表格（表头行 + `| --- |` 分隔行 + 数据行），一张表只表达一件事；单元格内不要换行或嵌套列表——导出时按行、按列读取。

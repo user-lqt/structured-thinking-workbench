@@ -114,6 +114,11 @@ window.WB = window.WB || {};
     triggerDownload(URL.createObjectURL(blob), filename);
   }
 
+  /* 二进制产物（.docx / .xlsx）下载：不加文本 BOM，按原始字节写出 */
+  function downloadBytes(filename, bytes, mime = 'application/octet-stream') {
+    downloadBlob(filename, new Blob([bytes], { type: mime }));
+  }
+
   function triggerDownload(url, filename) {
     const link = document.createElement('a');
     link.href = url;
@@ -181,6 +186,7 @@ window.WB = window.WB || {};
     daysToEvent,
     downloadText,
     downloadBlob,
+    downloadBytes,
     sourceBadge,
     paintBadge,
     safeFileName,

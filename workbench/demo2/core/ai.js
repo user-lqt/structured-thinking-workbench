@@ -97,12 +97,58 @@ window.WB = window.WB || {};
 
   const documentContract = (sections) => `{\n  "title": "活动名称｜文档名称",\n  "sections": [\n${sections.map((heading) => `    { "heading": ${JSON.stringify(heading)}, "body": "Markdown 正文，不要重复写 heading" }`).join(',\n')}\n  ]\n}`;
 
+  /* 「按参考重排」：把现有正文改写成与参考样表形式一致的成稿。
+     与 documentContract 的区别是：栏目不是我方内置章节，而是参考解析出来的栏目；
+     表格列名与字段清单照抄参考，值只能取自现有正文与项目数据，取不到写「待确认」。 */
+  const reframeContract = (headings, reference) => {
+    const columns = (reference?.sections || []).map((section) => section.heading);
+    const fields = reference?.fields || [];
+    const tables = (reference?.tables || []).map((table) => (table.headers || []).filter(Boolean).join(' / ')).filter(Boolean);
+    return [
+      '这一轮不是重新创作，而是「按参考样表重排」：把「现有正文」改写成一份形式与参考件一致的成稿，内容仍属于本项目。',
+      columns.length
+        ? `参考件的栏目（顺序与名称照抄，不得增删或改名）：\n${columns.map((name, index) => `  ${index + 1}. ${name}`).join('\n')}`
+        : '参考件没有解析出栏目，沿用现有正文的章节。',
+      fields.length ? `参考件的字段清单（每一条都要在正文里出现）：\n  ${fields.join('、')}` : '',
+      tables.length ? `参考件里的表格（列名与列顺序照抄，行按本项目事实填）：\n${tables.map((row) => `  ${row}`).join('\n')}` : '',
+      '取值顺序：① 现有正文里已经写到的 → 照搬；② 项目信息表 / 任务分解 / 风险台账 / 素材库里有 → 取过来；③ 都没有 → 写「待确认」。不要编造事实。',
+      '参考原文里属于别的事实的值（时间、地点、人名、金额、单位、主办方）一律不要照抄到本项目。',
+      '只做重排、对齐与补全：不得新增参考与现有正文都没有的事实，也不要把已经写好的内容删成空壳。',
+      '形式：一级栏目用 #，二级标题用 ##，表格用 Markdown 管道表，条目用 - ；不要写代码块、不要写解释。',
+      `返回 JSON：\n{\n  "title": "活动名称｜文档名称",\n  "sections": [\n${headings.map((heading) => `    { "heading": ${JSON.stringify(heading)}, "body": "Markdown 正文，不要重复写 heading" }`).join(',\n')}\n  ]\n}`
+    ].filter(Boolean).join('\n\n');
+  };
+  /* 「参考表填值」：只回值，不改结构。清单在 input 里，契约只描述返回形状。
+     要求「每个 id 都要回一行」是为了把「模型没看到」和「模型真没依据」区分开：
+     没依据的显式回空串，前端就能统计出到底跳过了多少。 */
+  const fillContract = () => `{
+  "values": [
+    { "id": "空位 id，照抄输入的 id", "value": "要填进这一格的文字；没有依据就留空字符串", "basis": "依据：项目信息表 / 任务分解 / 风险台账 / 资源台账 / 已有材料 / 参考写法 / 无" }
+  ]
+}`;
+
   function resourceContract() {
     const kinds = window.WB.util.RESOURCE_KINDS.map((kind) => kind.value).join('|');
     return `{\n  "resources": [\n    { "name": "资源名称", "kind": "${kinds}", "phase": "plan|prepare|execute|close", "unit": "人|处|台|件|元|辆", "available": 1, "assigned": 0, "owner": "责任人角色", "note": "用途" }\n  ]\n}`;
   }
 
   const drillContract = () => `{\n  "steps": [{ "text": "责任角色 + 在多少分钟内 + 做什么" }],\n  "decisions": "关键决策与取舍依据，2 句以内",\n  "rollback": "恢复常态流程的量化条件与确认人",\n  "followUp": ["演练后要补进预案的改进项，最多 3 条"],\n  "risk": { "name": "", "trigger": "", "prevention": "", "response": "", "escalation": "", "owner": "" }\n}`;
+
+  /* 访谈式补全（skill: intake）：
+     ask     → 追加更贴合本项目的追问，字段必须在白名单内；
+     draft   → 就某一题给 2–3 个可直接采用的版本；
+     compose → 把访谈回答整理成通顺成稿，只作用于目标 / 内容 / 约束三个文本区。
+     追问口径来自课程手册 4.4：每条追问都要「指认一个具体缺口 + 施加一条硬约束」，
+     句式从「依据 / 前提 / 反例 / 边界 / 替代 / 自评」里挑，优先边界与替代。 */
+  function intakeAskContract() {
+    const keys = window.WB.interview?.AI_KEYS || ['goal', 'content', 'constraint', 'audience', 'venueBackup', 'coOrganizer', 'approval', 'budget', 'guests'];
+    const styles = (window.WB.interview?.ASK_STYLES || ['依据', '前提', '反例', '边界', '替代', '自评']).join('|');
+    return `{\n  "questions": [\n    { "key": "${keys.join('|')}", "style": "${styles}", "ask": "追问，一句话，24 字以内", "why": "补的是哪个缺口：这一项不填会导致什么，20 字以内", "hint": "一条硬约束，或一个具体例子" }\n  ]\n}`;
+  }
+
+  const intakeDraftContract = () => `{\n  "options": [\n    "可直接采用的版本，40 字以内",\n    "第二版，风格或规模不同"\n  ]\n}`;
+
+  const intakeComposeContract = () => `{\n  "basic": {\n    "goal": "核心目标：目标 + 衡量指标，60 字以内",\n    "content": "活动内容与形式：核心环节 + 亮点 + 参与方式",\n    "constraint": "已知约束：场地 / 经费 / 时间的硬性限制，没有就留空"\n  },\n  "notes": ["最多 3 条补充说明"]\n}`;
 
   /* ── 合并：AI 只补空白与「待确认」 ─────── */
 
@@ -188,8 +234,13 @@ window.WB = window.WB || {};
     riskCalibrateContract,
     decisionContract,
     documentContract,
+    reframeContract,
+    fillContract,
     resourceContract,
     drillContract,
+    intakeAskContract,
+    intakeDraftContract,
+    intakeComposeContract,
     normaliseValue,
     mergeBasic,
     mergeOutputs,

@@ -3,6 +3,7 @@ name: news-release
 title: 新闻稿 / 感谢信
 kind: document
 phase: close
+deliverable: word
 description: 产出可投递的新闻稿与致谢函，兼顾宣传效果与事实准确。
 ---
 
@@ -50,3 +51,10 @@ description: 产出可投递的新闻稿与致谢函，兼顾宣传效果与事�
 - [ ] 导语含时间、地点、主办单位
 - [ ] 感谢信写明具体支持内容
 - [ ] 未编造人数、嘉宾与媒体信息
+
+## 交付格式
+
+- **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
+- **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
+- **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
+- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。

@@ -51,6 +51,30 @@
       </form>
     </div>
 
+    <div id="interview" class="wizard interview" role="dialog" aria-modal="true" aria-labelledby="interviewTitle">
+      <div class="wizard-panel interview-panel">
+        <div class="wizard-head">
+          <span class="brand-mark">问</span>
+          <div>
+            <div class="eyebrow">问答式补全</div>
+            <h1 id="interviewTitle">我一问，你一答，答完自动填表</h1>
+            <p id="interviewSubtitle">问题按活动类型生成；只写进空白字段，已有内容的字段要先问过你才追加。</p>
+          </div>
+          <button type="button" class="quiet-icon close-interview" aria-label="关闭">×</button>
+        </div>
+        <div id="interviewBody" class="interview-body"></div>
+        <div class="wizard-foot">
+          <span id="interviewHint" class="wizard-hint"></span>
+          <div class="wizard-actions">
+            <button type="button" class="button button-ghost" id="interviewAiAsk"><span>✦</span> 让 AI 再追问</button>
+            <button type="button" class="button button-ghost" id="interviewPrev">上一题</button>
+            <button type="button" class="button button-ghost" id="interviewNext">下一题</button>
+            <button type="button" class="button button-primary" id="interviewApply">生成并填入</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="shell">
       <header class="topbar">
         <div class="topbar-left">
@@ -94,7 +118,8 @@
               <p id="skillSummary" class="skill-summary"></p>
             </div>
             <div class="panel-actions">
-              <button class="button button-primary" id="aiFillManifest"><span>✦</span> AI 补全信息表</button>
+              <button class="button button-primary" id="interviewStart"><span>✦</span> 问答式补全</button>
+              <button class="button button-ghost" id="aiFillManifest"><span>✦</span> AI 补全信息表</button>
               <button class="button button-ghost" id="generateMaterials"><span>✦</span> 批量生成已选材料</button>
               <button class="button button-ghost" id="exportManifestJson">导出 JSON</button>
               <button class="button button-ghost" id="exportManifestMd">导出 Markdown</button>
@@ -200,13 +225,14 @@
           <div class="panel-head">
             <div>
               <h2>过程材料</h2>
-              <p>每个产出对应一个技能包。有学校模板就上传，生成时会逐字对齐模板章节。</p>
+              <p>每个产出对应一个技能包。有学校模板或往届样表就上传（点按钮，或把文件直接拖到卡片上），生成时会逐字对齐模板章节与参考的栏目字段。</p>
               <p id="materialSummary" class="skill-summary"></p>
             </div>
             <div class="panel-actions">
               <button class="button button-ghost" id="uploadTemplate"><span>⇪</span> 上传 Word 模板</button>
               <button class="button button-primary" id="generateAllMaterials"><span>✦</span> 批量生成</button>
-              <button class="button button-ghost" id="exportMaterials">导出材料包</button>
+              <button class="button button-ghost" id="exportMaterials">导出材料包（Markdown）</button>
+              <button class="button button-ghost" id="exportMaterialsDocx">导出材料包（Word）</button>
             </div>
           </div>
           <div id="templateBar" class="template-bar"></div>
@@ -236,6 +262,7 @@
     <div id="toast" class="toast" role="status"></div>
 
     <input type="file" id="templateFile" accept=".docx,.md,.markdown,.txt" hidden />
+    <input type="file" id="referenceFile" accept=".docx,.md,.markdown,.txt" hidden />
     <input type="file" id="assetFile" accept="image/*,.txt,.md,.csv,.json" multiple hidden />
     <input type="file" id="bundleFile" accept=".json" hidden />
     <input type="file" id="projectBundleFile" accept=".json" hidden />
@@ -249,6 +276,10 @@
     <script src="./core/wbs.js"></script>
     <script src="./core/drills.js"></script>
     <script src="./core/ai.js"></script>
+    <script src="./core/interview.js"></script>
+    <script src="./core/markdown.js"></script>
+    <script src="./core/ooxml.js"></script>
+    <script src="./core/docx.js"></script>
     <script src="./core/export.js"></script>
     <script src="./views/projects.js"></script>
     <script src="./views/overview.js"></script>

@@ -245,7 +245,7 @@ async function handleSkills(req, res) {
     ...entry,
     ready: existsSync(path.join(skillsDir, entry.id, 'SKILL.md'))
   }));
-  return send(res, 200, { layout: registry.layout, kinds: registry.kinds, skills });
+  return send(res, 200, { layout: registry.layout, kinds: registry.kinds, deliverables: registry.deliverables, skills });
 }
 
 async function handleStructure(req, res) {

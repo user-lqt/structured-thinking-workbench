@@ -3,6 +3,7 @@ name: archive-list
 title: 资料归档清单
 kind: table
 phase: close
+deliverable: excel
 description: 规定归档范围与命名规则，列出文档、影像与素材的移交清单，保证下次找得到。
 ---
 
@@ -45,3 +46,10 @@ description: 规定归档范围与命名规则，列出文档、影像与素材�
 - [ ] 文档清单覆盖全部材料类型，缺项写明不涉及
 - [ ] 命名规则给出可套用的示例
 - [ ] 未编造路径与档案编号
+
+## 交付格式
+
+- **主交付**：Excel 工作簿（`.xlsx`）。每个章节一张工作表，表格首行为表头并冻结；纯正文章节按行铺开。
+- **备选**：Word（`.docx`）与 Markdown（`.md`），内容与工作簿一致。
+- **导出入口**：「过程材料」卡片上的 `Excel` / `Word` / `Markdown` 按钮（`Excel` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToXlsx(doc)` / `materialToDocx(doc)`。
+- **写作要求**：每章用 Markdown 管道表格（表头行 + `| --- |` 分隔行 + 数据行），一张表只表达一件事；单元格内不要换行或嵌套列表——导出时按行、按列读取。

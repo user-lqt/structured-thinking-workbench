@@ -39,7 +39,7 @@ function makeElement(id = '') {
       }
     },
     addEventListener: (type, fn) => { (events[type] = events[type] || []).push(fn); },
-    emit: (type, event) => { for (const fn of events[type] || []) fn(event); },
+    emit: (type, event) => { let result; for (const fn of events[type] || []) result = fn(event); return result; },
     removeEventListener: noop, appendChild: noop, removeChild: noop,
     setAttribute: noop, removeAttribute: noop, getAttribute: () => null, getAttributeNames: () => [],
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
@@ -73,7 +73,7 @@ globalThis.prompt = () => '';
 
 const MODULES = [
   'schemas.js', 'materials.js',
-  'core/util.js', 'core/store.js', 'core/risk.js', 'core/wbs.js', 'core/drills.js', 'core/ai.js', 'core/export.js',
+  'core/util.js', 'core/store.js', 'core/risk.js', 'core/wbs.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/tasks.js', 'views/decision.js',
   'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/assets.js', 'views/help.js',
   'app.js'
@@ -142,6 +142,25 @@ const structItems = U.OUTPUT_ITEMS.filter((item) => item.kind === 'structure');
 check('structure 类产出有对应视图承接', structItems.every((item) => item.skill === 'decision-matrix'));
 const outputsWithoutPhase = U.OUTPUT_ITEMS.filter((item) => !U.PHASE_ORDER[item.phase] && U.PHASE_ORDER[item.phase] !== 0);
 check('每个产出都归属到一个阶段', outputsWithoutPhase.length === 0, outputsWithoutPhase.map((i) => i.key).join(', '));
+
+/* 交付格式：技能包要声明主交付格式，且与产出类型自洽 */
+const DELIVERABLE_BY_KIND = { table: 'excel', document: 'word', graphic: 'svg' };
+const deliverableBad = registry.skills.filter((skill) => {
+  if (!registry.deliverables || !registry.deliverables[skill.deliverable]) return true;
+  return DELIVERABLE_BY_KIND[skill.kind]
+    ? skill.deliverable !== DELIVERABLE_BY_KIND[skill.kind]
+    : !['markdown', 'none'].includes(skill.deliverable);
+});
+check('每个技能都声明了合法的交付格式', deliverableBad.length === 0,
+  deliverableBad.map((skill) => `${skill.id}:${skill.deliverable}`).join(', '));
+
+const skillDocMismatch = registry.skills.filter((skill) => {
+  const text = fs.readFileSync(path.join(root, 'skills', skill.id, 'SKILL.md'), 'utf8');
+  const declared = new RegExp(`\\ndeliverable: ${skill.deliverable}\\r?\\n`).test(text);
+  return !declared || !text.includes('## 交付格式');
+});
+check('SKILL.md 的交付格式与 registry 一致且含「交付格式」章节', skillDocMismatch.length === 0,
+  skillDocMismatch.map((skill) => skill.id).join(', '));
 
 /* ── 3b. 身份、资源台账与演练场景库 ─────────── */
 check('角色为组织者/成员/访客三档',
@@ -235,6 +254,412 @@ for (const [label, text, needles] of cases) {
 }
 const csvLines = X.wbsToCsv().trim().split('\n').length;
 check('CSV 行数 = 任务数 + 1', csvLines === state.wbs.length + 1, `csv=${csvLines} wbs=${state.wbs.length}`);
+
+/* ── 6b. Markdown 渲染与 Word / Excel 生成 ── */
+const MD = window.WB.markdown;
+const OX = window.WB.ooxml;
+
+const tableHtml = MD.toHtml('| 科目 | 金额 |\n| --- | ---: |\n| 场地 | 2000 |');
+check('Markdown 表格渲染成 HTML 表格',
+  tableHtml.includes('<table') && tableHtml.includes('<th>科目</th>') && tableHtml.includes('<td>2000</td>'),
+  tableHtml.slice(0, 80));
+const escaped = MD.toHtml('**加粗** 与 <script>alert(1)</script>');
+check('Markdown 渲染转义 HTML 且支持行内强调',
+  escaped.includes('<strong>加粗</strong>') && escaped.includes('&lt;script&gt;') && !escaped.includes('<script>'));
+const mdBlocks = MD.parseBlocks('# 标题\n\n正文一\n正文二\n\n- 甲\n- 乙\n\n| a | b |\n| --- | --- |\n| 1 | 2 |');
+check('Markdown 结构块类型齐全',
+  mdBlocks.map((block) => block.type).join(',') === 'heading,paragraph,list,table',
+  mdBlocks.map((block) => block.type).join(','));
+check('Markdown 相邻行合并为同一段', mdBlocks[1].lines.length === 2, JSON.stringify(mdBlocks[1]));
+
+/* CRC32 用标准校验值锚定（"123456789" → 0xCBF43926），确保打包层没写错 */
+check('OOXML CRC32 与标准一致', OX.crc32(new TextEncoder().encode('123456789')) === 0xCBF43926);
+
+const probeDoc = {
+  title: '校园科技文化节｜预算表',
+  sections: [
+    { heading: '一、预算总览', body: '| 科目 | 金额 |\n| --- | --- |\n| 场地与设备 | 6000 |\n| 物料制作 | 4000 |' },
+    { heading: '二、成本控制与审批', body: '先审批，再采购。\n\n- 500 元以上需要负责人签字\n- 采购后三日内报销' }
+  ]
+};
+const isZip = (bytes) => bytes instanceof Uint8Array
+  && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+
+const docxBytes = X.materialToDocx(probeDoc);
+check('导出 Word 得到 ZIP 容器（.docx）', isZip(docxBytes), `${docxBytes?.length ?? 0} 字节`);
+const docxParts = OX.readEntries(docxBytes);
+const docxNames = docxParts.map((part) => part.name);
+check('Word 包结构完整',
+  ['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/styles.xml', 'word/_rels/document.xml.rels']
+    .every((name) => docxNames.includes(name)), docxNames.join(', '));
+const docxBody = new TextDecoder().decode(docxParts.find((part) => part.name === 'word/document.xml').data);
+check('Word 正文含章节标题、标题样式与表格',
+  docxBody.includes('一、预算总览') && docxBody.includes('w:val="Heading1"') && docxBody.includes('<w:tbl>'));
+check('Word 表格保留每个单元格文本',
+  ['科目', '金额', '场地与设备', '6000'].every((cell) => docxBody.includes(cell)));
+check('Word 列表渲染为项目符号段落', docxBody.includes('• 500 元以上需要负责人签字'));
+
+/* OOXML 的 pPr / worksheet 是有序序列，顺序错了 Word、Excel 会要求「修复」 */
+const PPR_ORDER = ['w:pStyle', 'w:spacing', 'w:ind', 'w:jc'];
+const pprBlocks = [...docxBody.matchAll(/<w:pPr>([\s\S]*?)<\/w:pPr>/g)].map((match) => match[1]);
+const pprOrderOk = pprBlocks.length > 0 && pprBlocks.every((inner) => {
+  const positions = [...inner.matchAll(/<w:(\w+)[\s/>]/g)]
+    .map((match) => `w:${match[1]}`)
+    .filter((tag) => PPR_ORDER.includes(tag))
+    .map((tag) => PPR_ORDER.indexOf(tag));
+  return positions.every((value, index) => index === 0 || positions[index - 1] <= value);
+});
+check('Word 段落属性顺序符合 OOXML 序列（pStyle → spacing → ind → jc）', pprOrderOk, `${pprBlocks.length} 个 pPr`);
+
+const xlsxBytes = X.materialToXlsx(probeDoc);
+check('导出 Excel 得到 ZIP 容器（.xlsx）', isZip(xlsxBytes), `${xlsxBytes?.length ?? 0} 字节`);
+const xlsxParts = OX.readEntries(xlsxBytes);
+const sheetParts = xlsxParts.filter((part) => part.name.startsWith('xl/worksheets/'));
+check('Excel 每章一张工作表', sheetParts.length === probeDoc.sections.length,
+  `sheets=${sheetParts.length} sections=${probeDoc.sections.length}`);
+check('Excel 含工作簿与样式表',
+  xlsxParts.some((part) => part.name === 'xl/workbook.xml') && xlsxParts.some((part) => part.name === 'xl/styles.xml'));
+const firstSheet = new TextDecoder().decode(sheetParts[0].data);
+check('Excel 的 cols 排在 sheetData 之前', firstSheet.indexOf('<cols') >= 0 && firstSheet.indexOf('<cols') < firstSheet.indexOf('<sheetData'));check('Excel 表格首行为表头并冻结首行',
+  firstSheet.includes('t="inlineStr"') && firstSheet.includes('state="frozen"') && firstSheet.includes('科目'));
+
+check('材料包 Word 也能生成', isZip(X.materialsPackDocx()));
+
+check('主交付格式随产出类型切换',
+  X.primaryFormat({ kind: 'table' }) === 'xlsx'
+  && X.primaryFormat({ kind: 'document' }) === 'docx'
+  && X.primaryFormat({ kind: 'structure' }) === 'xlsx'
+  && X.primaryFormat({ kind: 'graphic' }) === 'md');
+
+/* 真实示例材料也要能导出不报错 */
+const materialItem = U.OUTPUT_ITEMS.find((item) => state.materials[item.key]);
+check('示例项目带有可导出的材料', Boolean(materialItem), '缺少已生成材料');
+if (materialItem) {
+  const realDoc = state.materials[materialItem.key];
+  const realDocx = X.materialToDocx(realDoc);
+  const realXlsx = X.materialToXlsx(realDoc);
+  check('示例材料导出 Word / Excel 成功', isZip(realDocx) && isZip(realXlsx),
+    `docx=${realDocx.length} xlsx=${realXlsx.length}`);
+  check('示例材料 Excel 工作表数 = 章节数',
+    OX.readEntries(realXlsx).filter((part) => part.name.startsWith('xl/worksheets/')).length === realDoc.sections.length);
+}
+
+/* 材料视图默认渲染 Markdown 预览，而不是裸文本框 */
+state.ui.openMaterial = materialItem.key;
+window.WB.views.material.render();
+const previewHtml = document.querySelector('#materialList').innerHTML;
+check('材料视图默认渲染 Markdown 预览并带模式开关',
+  previewHtml.includes('md-body') && previewHtml.includes('material-mode'));
+check('预览模式不再输出裸 textarea',
+  !previewHtml.includes('data-material-body') && previewHtml.includes('md-table-wrap'));
+check('导出按钮提供 Word / Excel / Markdown 三种格式',
+  previewHtml.includes('data-format="docx"') && previewHtml.includes('data-format="xlsx"') && previewHtml.includes('data-format="md"'));
+/* ── 6c. 在线编辑 + 发票列 ──────────────────
+   预览即编辑面：正文块 contenteditable、表格单元格直接改，改完只回写这一块；
+   金额表最右自动多一列「发票」，文件拖到对应行即可挂上。 */
+
+const invDocKey = 'budgetSheet';
+const invDoc = {
+  title: '发票测试｜预算表',
+  templateName: '测试模板',
+  generatedAt: new Date().toISOString(),
+  source: 'ai',
+  sections: [
+    { heading: '一、预算总览', body: '| 科目 | 金额 |\n| --- | ---: |\n| 场地与设备 | 6000 |\n| 物料制作 | 4000 |' },
+    { heading: '二、成本控制', body: '先审批再采购。\n\n- 500 元以上需签字' }
+  ]
+};
+const savedUser = store.state.user;
+state.materials[invDocKey] = invDoc;
+state.project.outputs[invDocKey] = true;
+state.ui.openMaterial = invDocKey;
+
+/* 只读访客：看得到发票栏，但没有编辑入口 */
+store.setUser({ name: '只读同学', role: 'viewer' });
+window.WB.views.material.render();
+const guestHtml = document.querySelector('#materialList').innerHTML;
+check('访客只读：预览不带 contenteditable', !guestHtml.includes('contenteditable="true"'));
+check('访客只读：不出现「添加一行」与删行按钮',
+  !guestHtml.includes('data-material-row-add') && !guestHtml.includes('data-material-row-remove'));
+check('访客也能看到金额表的发票列', guestHtml.includes('md-invoice-head') && guestHtml.includes('发票'));
+
+/* 成员：可在线编辑 */
+store.setUser({ name: '编辑同学', role: 'member' });
+window.WB.views.material.render();
+const editHtml = document.querySelector('#materialList').innerHTML;
+check('成员可写：正文与表格带上 contenteditable', editHtml.includes('contenteditable="true"'));
+check('成员可写：表格提供「添加一行」', editHtml.includes('data-material-row-add'));
+check('成员可写：发票格可拖拽也能点选上传',
+  editHtml.includes('md-invoice-add') && editHtml.includes('data-material-invoice-add'));
+check('金额表提示发票拖到对应行', editHtml.includes('发票文件直接拖到对应那一行的'));
+
+/* 金额表识别：认得出才挂发票列 */
+check('金额表识别：表头含金额 / 单价 / 费用 / 合计',
+  X.isMoneyTable(['科目', '金额']) && X.isMoneyTable(['项目', '单价（元）']) && X.isMoneyTable(['费用项', '合计']));
+check('金额表识别：章节名带预算 / 经费 / 决算也算',
+  X.isMoneyTable(['项目', '数量'], '二、预算明细') && X.isMoneyTable([], '三、经费决算'));
+check('非金额表不挂发票列', !X.isMoneyTable(['阶段', '任务', '负责人'], '二、任务分解'));
+check('发票键按「章节:表块:行」生成', X.invoiceKey(2, 1, 5) === '2:1:5');
+
+/* 只改这一块：空行与相邻段落原样保留 */
+const spliceSource = '甲段\n\n乙段\n\n丙段';
+check('只替换目标块，空行与相邻段落原样保留',
+  MD.spliceBlock(spliceSource, MD.parseBlocks(spliceSource)[1], '乙段（改）') === '甲段\n\n乙段（改）\n\n丙段');
+
+/* 在线改单元格：写回该表块，表头 / 对齐 / 其它章节都不动 */
+const invTable = () => MD.parseBlocks(invDoc.sections[0].body)[0];
+const fakeCell = (innerHTML, derived = false) => ({ innerHTML, derived });
+const fakeRow = (cells) => {
+  cells.forEach((cell, col) => { if (cell) cell.dataset = { col: String(col) }; });
+  return {
+    querySelector: (selector) => {
+      const match = /data-col="(\d+)"/.exec(selector);
+      return match && cells[Number(match[1])] ? cells[Number(match[1])] : null;
+    },
+    querySelectorAll: (selector) => {
+      if (!/td\[data-col\]/.test(selector)) return [];
+      const onlyDerived = selector.includes(':not([contenteditable])');
+      return cells.filter((cell) => cell && (!onlyDerived || cell.derived));
+    }
+  };
+};
+window.WB.views.material.commitTable({
+  dataset: { materialBlock: invDocKey, sectionIndex: '0', blockIndex: '0' },
+  querySelector: (selector) => (selector === 'thead tr'
+    ? { querySelectorAll: () => [fakeCell('科目'), fakeCell('金额')] } : null),
+  querySelectorAll: (selector) => (selector === 'tbody tr'
+    ? [fakeRow([fakeCell('场地与设备'), fakeCell('**800**')]), fakeRow([fakeCell('物料制作'), fakeCell('4000')])]
+    : [])
+});
+check('在线改单元格：改的那格写回（行内标记也还原）',
+  invTable().rows[0][1] === '**800**', invDoc.sections[0].body);
+check('在线改单元格：表头与其它行不动',
+  invTable().header.join('|') === '科目|金额' && invTable().rows[1][1] === '4000');
+check('在线改单元格：对齐占位（---:）保留', invDoc.sections[0].body.split('\n')[1] === '| --- | ---: |');
+check('在线改单元格：其它章节完全不受影响',
+  invDoc.sections[1].body === '先审批再采购。\n\n- 500 元以上需签字');
+check('commitTable 对非表格块本身不写入',
+  (window.WB.views.material.commitTable({ dataset: { materialBlock: invDocKey, sectionIndex: '1', blockIndex: '0' },
+    querySelector: () => null, querySelectorAll: () => [] }),
+  invDoc.sections[1].body === '先审批再采购。\n\n- 500 元以上需签字'));
+
+/* 发票：小文件内联、超大只记文件名；导出才补列，不写回正文 */
+const invKey = X.invoiceKey(0, 0, 1);
+const attached = window.WB.views.material.attachInvoices(invDocKey, invKey, [
+  { name: '场地租赁发票.pdf', size: 200 * 1024, type: 'application/pdf', dataUrl: 'data:application/pdf;base64,QUJD' },
+  { name: '大图扫描件.png', size: 900 * 1024, type: 'image/png', dataUrl: '' }
+]);
+check('发票挂到指定行', Array.isArray(attached) && X.invoicesOf(invDoc, invKey).length === 2);
+check('小发票内联保存，超大只留文件名',
+  X.invoicesOf(invDoc, invKey)[0].stored === true && X.invoicesOf(invDoc, invKey)[1].stored === false);
+check('正文本身不含「发票」（发票是导出层派生）', !invDoc.sections[0].body.includes('发票'));
+
+const withCol = X.withInvoices(invDoc, 0, MD.parseBlocks(invDoc.sections[0].body));
+check('withInvoices：有附件的表补出发票列',
+  withCol[0].header[withCol[0].header.length - 1] === '发票'
+  && withCol[0].rows[1][withCol[0].rows[1].length - 1] === '场地租赁发票.pdf、大图扫描件.png');
+const withNone = X.withInvoices({ sections: [] }, 0, MD.parseBlocks('| a | b |\n| --- | --- |\n| 1 | 2 |'));
+check('withInvoices：没有附件时不补空列',
+  withNone[0].header.length === 2 && withNone[0].header.join('|') === 'a|b');
+
+const invDocxBody = new TextDecoder().decode(OX.readEntries(X.materialToDocx(invDoc)).find((part) => part.name === 'word/document.xml').data);
+check('导出 Word：有附件的那行带上发票列与文件名',
+  invDocxBody.includes('发票') && invDocxBody.includes('场地租赁发票.pdf'));
+const invSheet = new TextDecoder().decode(OX.readEntries(X.materialToXlsx(invDoc)).find((part) => part.name === 'xl/worksheets/sheet1.xml').data);
+check('导出 Excel：明细表带上发票列与文件名',
+  invSheet.includes('发票') && invSheet.includes('场地租赁发票.pdf'));
+
+/* 加行 / 删行：发票跟着行走，删掉的那行发票一起清 */
+window.WB.views.material.removeRow(invDocKey, 0, 0, 0);
+check('删除行：表格少一行', invTable().rows.length === 1, invDoc.sections[0].body);
+check('删除行：其余行的发票索引前移',
+  X.invoicesOf(invDoc, X.invoiceKey(0, 0, 0)).length === 2
+  && X.invoicesOf(invDoc, X.invoiceKey(0, 0, 1)).length === 0, JSON.stringify(invDoc.invoices));
+window.WB.views.material.addRow(invDocKey, 0, 0);
+check('添加一行：表格多一行且原有发票不受影响',
+  invTable().rows.length === 2 && X.invoicesOf(invDoc, X.invoiceKey(0, 0, 0)).length === 2);
+window.WB.views.material.removeRow(invDocKey, 0, 0, 0);
+window.WB.views.material.removeRow(invDocKey, 0, 0, 0);
+check('表格至少保留一行（不会被删空）', invTable().rows.length === 1, invDoc.sections[0].body);
+
+const paraBlock = MD.parseBlocks(invDoc.sections[1].body)[0];
+check('预览块：可写时带 contenteditable，只读时没有',
+  window.WB.views.material.previewBlock(invDocKey, invDoc, 1, 0, paraBlock, true).includes('contenteditable="true"')
+  && !window.WB.views.material.previewBlock(invDocKey, invDoc, 1, 0, paraBlock, false).includes('contenteditable'));
+
+/* 合计行：数值自动求和，且不能编辑、不能删除 */
+check('合计行识别：含合计 / 总计 / 小计',
+  X.isTotalRow(['合计', '1']) && X.isTotalRow(['总计', '1']) && X.isTotalRow(['', '小计', '1']));
+check('非合计行不误判', !X.isTotalRow(['场地与设备', '6000', '30%']));
+const totalHead = ['科目', '金额', '占比'];
+const totalRows = MD.parseBlocks('| 科目 | 金额 | 占比 |\n| --- | ---: | ---: |\n| 场地 | 6000 | 30% |\n| 物料 | 4000 | 20% |\n| 合计 | 1 | 50% |')[0].rows;
+const summed = X.applyTotals(totalHead, totalRows);
+check('合计列自动求和（6000 + 4000 = 10000）', summed[2][1] === '10000', JSON.stringify(summed[2]));
+check('占比列按「本行金额 ÷ 合计金额」实时算出',
+  summed[0][2] === '60%' && summed[1][2] === '40%' && summed[2][2] === '100%',
+  summed.map((row) => row[2]).join(' / '));
+check('写死 / 写错的占比会被重算，不是简单求和',
+  summed[2][2] !== '50%' && X.isShareCell('30%') && !X.isShareCell('30'));
+check('派生列规划：金额是基数、占比是派生列',
+  X.columnPlan(totalHead, totalRows).baseCol === 1
+  && X.columnPlan(totalHead, totalRows).shareCols.includes(2)
+  && X.columnPlan(['阶段', '任务'], [['前期', '立项']]).shareCols.length === 0);
+check('合计为 0 时不做除法，占比不硬算',
+  X.applyTotals(['科目', '金额', '占比'], [['甲', '0', '50%'], ['合计', '0', '50%']])[1][2] === '50%');
+check('合计标签列原样保留，其它行不动',
+  summed[2][0] === '合计' && summed[0][1] === '6000' && summed[1][1] === '4000');
+check('没有合计行时原样返回',
+  X.applyTotals(totalHead, [['场地', '6000', '30%'], ['物料', '4000', '20%']]).length === 2);
+check('金额带 ¥ / 千分位 / 「元」也能求和',
+  X.applyTotals(['科目', '金额'], [['甲', '¥1,200元'], ['乙', '800'], ['合计', '0']])[2][1] === '2000');
+
+/* 视图层：合计行不可编辑、不可删除，加行插在它上方 */
+const totKey = 'settlement';
+const totDoc = {
+  title: '合计测试｜经费决算表',
+  templateName: '测试模板',
+  generatedAt: new Date().toISOString(),
+  source: 'ai',
+  sections: [
+    { heading: '一、决算明细', body: '| 科目 | 金额 |\n| --- | ---: |\n| 场地 | 6000 |\n| 物料 | 4000 |\n| 合计 | 1 |' },
+    { heading: '二、说明', body: '与预算口径一致。' }
+  ]
+};
+state.materials[totKey] = totDoc;
+state.project.outputs[totKey] = true;
+state.ui.openMaterial = totKey;
+window.WB.views.material.render();
+const totHtml = document.querySelector('#materialList').innerHTML;
+const totalRowHtml = (totHtml.match(/<tr class="md-total-row">[\s\S]*?<\/tr>/) || [''])[0];
+check('预览：合计行标成 md-total-row，数值已自动求和（10000）',
+  totalRowHtml.includes('md-total-cell') && totalRowHtml.includes('10000'), totalRowHtml.slice(0, 120));
+check('预览：合计行整行不可编辑', !totalRowHtml.includes('contenteditable'));
+check('预览：合计行没有删除按钮',
+  !totalRowHtml.includes('data-material-row-remove') && (totHtml.match(/data-material-row-remove/g) || []).length === 2);
+check('预览：金额表的合计行不出发票格（数据行仍可拖入）',
+  totalRowHtml.includes('md-invoice') && !totalRowHtml.includes('data-material-invoice') && totHtml.includes('data-material-invoice='));
+check('预览：表格工具条给出自动求和说明', totHtml.includes('「合计」行自动求和'));
+
+/* 预览：占比格也是不可编辑的派生格（用独立材料，避免动到上面的 totDoc） */
+const calcKey = 'review';
+state.materials[calcKey] = {
+  title: '占比测试｜复盘报告',
+  generatedAt: new Date().toISOString(),
+  source: 'ai',
+  sections: [{ heading: '一、费用构成', body: '| 科目 | 金额 | 占比 |\n| --- | ---: | ---: |\n| 场地与设备 | 6000 | 30% |\n| 物料制作 | 4000 | 20% |\n| 合计 | 1 | 50% |' }]
+};
+state.project.outputs[calcKey] = true;
+state.ui.openMaterial = calcKey;
+window.WB.views.material.render();
+const calcHtml = document.querySelector('#materialList').innerHTML;
+const calcShareCells = calcHtml.match(/<td[^>]*class="md-calc-cell"[^>]*>[^<]*<\/td>/g) || [];
+check('预览：占比格标成 md-calc-cell 且不可编辑（60% / 40%）',
+  calcShareCells.length === 2
+  && !calcShareCells.some((cell) => cell.includes('contenteditable'))
+  && calcShareCells[0].includes('60%') && calcShareCells[1].includes('40%'),
+  calcShareCells.join(' '));
+const calcTotalRow = (calcHtml.match(/<tr class="md-total-row">[\s\S]*?<\/tr>/) || [''])[0];
+check('预览：合计行的占比自动写成 100%', calcTotalRow.includes('100%'), calcTotalRow.slice(0, 160));
+check('预览：工具条说明占比是按金额实时算的', calcHtml.includes('「占比」按金额实时计算'));
+
+/* 派生格就地刷新：改金额后合计与占比一起变，正文也写回重算值 */
+const liveTrs = [
+  fakeRow([fakeCell('场地与设备'), fakeCell('6000'), fakeCell('60%', true)]),
+  fakeRow([fakeCell('物料制作'), fakeCell('4000'), fakeCell('40%', true)]),
+  fakeRow([fakeCell('合计'), fakeCell('10000', true), fakeCell('100%', true)])
+];
+window.WB.views.material.commitTable({
+  dataset: { materialBlock: calcKey, sectionIndex: '0', blockIndex: '0' },
+  querySelector: (selector) => (selector === 'thead tr'
+    ? { querySelectorAll: () => [fakeCell('科目'), fakeCell('金额'), fakeCell('占比')] } : null),
+  querySelectorAll: (selector) => (selector === 'tbody tr' ? liveTrs : [])
+});
+liveTrs[0].querySelector('td[data-col="1"]').innerHTML = '12000';
+window.WB.views.material.commitTable({
+  dataset: { materialBlock: calcKey, sectionIndex: '0', blockIndex: '0' },
+  querySelector: (selector) => (selector === 'thead tr'
+    ? { querySelectorAll: () => [fakeCell('科目'), fakeCell('金额'), fakeCell('占比')] } : null),
+  querySelectorAll: (selector) => (selector === 'tbody tr' ? liveTrs : [])
+});
+check('改金额后：界面上的合计与占比就地刷新',
+  liveTrs[2].querySelector('td[data-col="1"]').innerHTML === '16000'
+  && liveTrs[0].querySelector('td[data-col="2"]').innerHTML === '75%'
+  && liveTrs[1].querySelector('td[data-col="2"]').innerHTML === '25%',
+  liveTrs.map((tr) => tr.querySelectorAll('td[data-col]').map((td) => td.innerHTML).join('|')).join(' / '));
+check('改金额后：正文写回重算后的合计与占比',
+  state.materials[calcKey].sections[0].body.includes('| 场地与设备 | 12000 | 75% |')
+  && state.materials[calcKey].sections[0].body.includes('| 合计 | 16000 | 100% |'), state.materials[calcKey].sections[0].body);
+delete state.materials[calcKey];
+delete state.project.outputs[calcKey];
+
+/* 非金额表：每行都要有删行按钮，且按钮必须有定位祖先
+   （曾经因为 .md-act-col 没有 position，按钮被定位到页面右上角，看起来就是「不能删行」） */
+const plainKey = 'runbook';
+state.materials[plainKey] = {
+  title: '现场执行手册',
+  generatedAt: new Date().toISOString(),
+  source: 'ai',
+  sections: [{ heading: '四、成本控制与审批流程', body: '| 控制点 | 触发条件 | 审批人角色 |\n| --- | --- | --- |\n| 500 元以上 | 采购前 | 负责人 |\n| 场地变更 | 签约前 | 指导老师 |' }]
+};
+state.project.outputs[plainKey] = true;
+state.ui.materialPhase = 'all';
+state.ui.openMaterial = plainKey;
+window.WB.views.material.render();
+const plainHtml = document.querySelector('#materialList').innerHTML;
+check('非金额表：每一行都有删行按钮，且不出现发票列',
+  (plainHtml.match(/data-material-row-remove/g) || []).length === 2 && !plainHtml.includes('md-invoice-head'),
+  `${(plainHtml.match(/data-material-row-remove/g) || []).length} 个按钮`);
+check('非金额表：表头留出操作列并给出删行提示',
+  plainHtml.includes('<th class="md-act-col"></th>') && plainHtml.includes('悬停行尾的 × 可删除该行'));
+check('删行按钮有定位祖先（.md-act-col 必须 positioned）',
+  /\.md-act-col \{[^}]*position: relative/.test(fs.readFileSync(path.join(root, 'styles.css'), 'utf8')));
+delete state.materials[plainKey];
+delete state.project.outputs[plainKey];
+state.ui.openMaterial = null;
+
+const totRowsBefore = MD.parseBlocks(totDoc.sections[0].body)[0].rows.length;
+window.WB.views.material.removeRow(totKey, 0, 0, 2);
+check('删除「合计」行被拒绝',
+  MD.parseBlocks(totDoc.sections[0].body)[0].rows.length === totRowsBefore, totDoc.sections[0].body);
+
+window.WB.views.material.addRow(totKey, 0, 0);
+const totAdded = MD.parseBlocks(totDoc.sections[0].body)[0];
+check('加行插在合计行上方，合计仍在最后一行',
+  totAdded.rows.length === 4 && X.isTotalRow(totAdded.rows[3]), totDoc.sections[0].body);
+check('加行后合计重新求和（空行按 0 计，仍 10000）', totAdded.rows[3][1] === '10000', totAdded.rows[3][1]);
+
+window.WB.views.material.commitTable({
+  dataset: { materialBlock: totKey, sectionIndex: '0', blockIndex: '0' },
+  querySelector: (selector) => (selector === 'thead tr'
+    ? { querySelectorAll: () => [fakeCell('科目'), fakeCell('金额')] } : null),
+  querySelectorAll: (selector) => (selector === 'tbody tr'
+    ? [fakeRow([fakeCell('场地'), fakeCell('6000')]), fakeRow([fakeCell('物料'), fakeCell('9000')]),
+      fakeRow([fakeCell(''), fakeCell('')]), fakeRow([fakeCell('合计'), fakeCell('10000')])]
+    : [])
+});
+const totCommitted = MD.parseBlocks(totDoc.sections[0].body)[0];
+check('改一格后合计自动重算（6000 + 9000 = 15000）', totCommitted.rows[3][1] === '15000', totDoc.sections[0].body);
+check('同一张表的其它改动照旧写回（4000 → 9000）', totCommitted.rows[1][1] === '9000');
+
+/* 导出以重算值为准：正文里写错的合计会在成品里被纠正 */
+const staleDoc = {
+  title: '合计测试｜经费决算表',
+  sections: [{ heading: '一、决算明细', body: '| 科目 | 金额 |\n| --- | ---: |\n| 场地 | 6000 |\n| 物料 | 4000 |\n| 合计 | 1 |' }]
+};
+const staleSheet = new TextDecoder().decode(OX.readEntries(X.materialToXlsx(staleDoc)).find((part) => part.name === 'xl/worksheets/sheet1.xml').data);
+check('导出 Excel：正文里写错的合计被重算为 10000', staleSheet.includes('10000'), staleSheet.slice(0, 160));
+const staleWord = new TextDecoder().decode(OX.readEntries(X.materialToDocx(staleDoc)).find((part) => part.name === 'word/document.xml').data);
+check('导出 Word：正文里写错的合计被重算为 10000', staleWord.includes('10000'));
+
+delete state.materials[totKey];
+delete state.project.outputs[totKey];
+state.ui.openMaterial = null;
+/* 收尾：把合成材料与身份收干净，避免影响后续用例 */
+delete state.materials[invDocKey];
+delete state.project.outputs[invDocKey];
+state.ui.openMaterial = null;
+if (savedUser) store.setUser(savedUser); else store.signOut();
+window.WB.views.material.render();
 
 /* ── 7. 项目包往返 ──────────────────────── */
 const bundle = store.exportBundle();
@@ -576,6 +1001,1099 @@ check('jumpFrom 切到目标视图并写入阶段筛选',
   store.state.view === 'tasks' && store.state.ui.taskPhase === 'close',
   `view=${store.state.view} phase=${store.state.ui.taskPhase}`);
 store.state.ui.taskPhase = 'all';
+
+/* ── 11. 问答式补全：只问空白、只填空白、AI 不覆盖手改 ── */
+store.setUser({ name: '组织者', role: 'organizer' });
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+const IVAPI = window.WB.interview;
+check('访谈引擎已导出', typeof IVAPI?.plan === 'function' && typeof IVAPI?.apply === 'function');
+check('intake 技能包已注册', registryIds.has('intake'));
+check('intake 的 SKILL.md 存在', fs.existsSync(path.join(root, 'skills/intake/SKILL.md')));
+const intakeSkill = fs.readFileSync(path.join(root, 'skills/intake/SKILL.md'), 'utf8');
+check('intake 的 frontmatter 按课程模板写全（含触发词与 agent_created）',
+  /^---\r?\n[\s\S]*?\nagent_created: true\r?\n---/.test(intakeSkill)
+  && /description:[\s\S]*?触发词/.test(intakeSkill.split('---')[1] || ''),
+  intakeSkill.split('---')[1]);
+check('intake 的正文按「适用场景 / 执行流程 / 输出格式 / 验收标准」组织',
+  ['## 适用场景', '## 执行流程', '## 输出格式', '## 验收标准'].every((h) => intakeSkill.includes(h)));
+check('intake 写入了六类追问句式与任务定制三条件',
+  ['依据', '前提', '反例', '边界', '替代', '自评'].every((s) => intakeSkill.includes(s))
+  && intakeSkill.includes('定条数') && intakeSkill.includes('定顺序') && intakeSkill.includes('不许推论'));
+check('AI 访谈契约已导出',
+  typeof window.WB.ai.intakeAskContract === 'function' && typeof window.WB.ai.intakeComposeContract === 'function');
+const ivAskContract = window.WB.ai.intakeAskContract();
+check('追问契约把字段白名单写给了模型', IVAPI.AI_KEYS.every((key) => ivAskContract.includes(key)));
+const ivComposeContract = window.WB.ai.intakeComposeContract();
+check('成稿契约只要求三个文本区', IVAPI.COMPOSED_KEYS.every((key) => ivComposeContract.includes(key)));
+check('追问契约要求模型标明句式并写清缺口',
+  ivAskContract.includes('why') && IVAPI.ASK_STYLES.every((style) => ivAskContract.includes(style)),
+  ivAskContract);
+
+/* 只填必填项，其余留空：访谈应当只问空白字段 */
+const ivState = store.state;
+ivState.project.basic = { type: '科技文化节', name: '校园科技文化节', date: '2026-05-18' };
+ivState.project.meta.basic = { type: 'user', name: 'user', date: 'user' };
+const ivQuestions = IVAPI.plan(ivState);
+check('访谈只问空白字段（文本区例外，用于重写）',
+  ivQuestions.every((q) => !q.filled || IVAPI.COMPOSED_KEYS.includes(q.key)),
+  ivQuestions.filter((q) => q.filled && !IVAPI.COMPOSED_KEYS.includes(q.key)).map((q) => q.key).join(','));
+check('已填的活动类型/名称/日期不再追问',
+  !ivQuestions.some((q) => ['type', 'name', 'date'].includes(q.id)), ivQuestions.map((q) => q.id).join(','));
+check('科技文化节问到展区与互动环节',
+  ivQuestions.some((q) => q.id === 'content-area') && ivQuestions.some((q) => q.id === 'content-interact'),
+  ivQuestions.map((q) => q.id).join(','));
+check('核心目标拆成「目标 + 衡量」两问', ivQuestions.filter((q) => q.key === 'goal').length === 2);
+check('每道题都指认了缺口（这一项不填会怎样）',
+  ivQuestions.every((q) => Boolean(q.why) && q.why.length >= 6),
+  ivQuestions.filter((q) => !q.why).map((q) => q.id).join(','));
+check('每道题都带句式字段（本地题留空，AI 追问才填）',
+  ivQuestions.every((q) => typeof q.style === 'string'));
+check('每个问题都指向真实字段且带问法',
+  ivQuestions.every((q) => Boolean(q.ask) && U.BASIC_FIELDS.some((f) => f.key === q.key)));
+
+ivState.project.basic.type = '运动会';
+const ivSportQuestions = IVAPI.plan(ivState);
+check('换活动类型后追问跟着换',
+  ivSportQuestions.some((q) => q.id === 'content-events') && !ivSportQuestions.some((q) => q.id === 'content-area'),
+  ivSportQuestions.map((q) => q.id).join(','));
+ivState.project.basic.type = '科技文化节';
+
+/* 回答 → 成稿：同字段多问合并，没答的问题不出现 */
+const ivAnswers = {
+  'content-area': '创客展区、舞台演出、互动体验三个板块',
+  'content-interact': '打卡集章与工作坊',
+  'goal-main': '让新生在两周内认识 3 个以上社团',
+  'goal-metric': '参与人数 ≥ 800，满意度 ≥ 4.5/5',
+  venue: '科创中心一层展厅',
+  guests: '800',
+  budget: '45000',
+  constraint: '22:00 前必须结束'
+};
+const ivRows = IVAPI.composeDraft(ivState, ivQuestions, ivAnswers);
+check('成稿把同字段的多个追问合并成一条', ivRows.length === 6, ivRows.map((r) => r.key).join(','));
+const ivGoalRow = ivRows.find((r) => r.key === 'goal');
+check('核心目标写成「目标（衡量：…）」',
+  Boolean(ivGoalRow?.proposed.includes('（衡量：')) && ivGoalRow.proposed.includes('满意度'));
+check('活动内容用分号连接多个回答',
+  ivRows.find((r) => r.key === 'content')?.proposed === '创客展区、舞台演出、互动体验三个板块；打卡集章与工作坊');
+check('没回答的问题不会凭空出现', !ivRows.some((r) => r.key === 'approval'));
+check('拟填清单区分空字段与已有内容', ivRows.every((r) => typeof r.filled === 'boolean'));
+check('拟填清单保留原始回答供 AI 整理',
+  Array.isArray(ivRows[0]?.values) && ivRows[0].values.length > 0, JSON.stringify(ivRows[0]));
+
+/* 写入：空字段自动填 */
+const ivChoices = Object.fromEntries(ivRows.map((row) => [row.key, true]));
+const ivResult = IVAPI.apply(ivState, ivRows, ivChoices);
+check('空字段全部写入且计数正确', ivResult.applied.length === 6 && ivResult.replaced.length === 0, JSON.stringify(ivResult));
+check('写入值与成稿一致',
+  ivState.project.basic.venue === '科创中心一层展厅' && ivState.project.basic.goal === ivGoalRow.proposed);
+check('写入的字段标记为用户填写',
+  ivState.project.meta.basic.venue === 'user' && ivState.project.meta.basic.budget === 'user');
+check('数字字段写入后是数字而不是字符串',
+  ivState.project.basic.guests === 800 && ivState.project.basic.budget === 45000,
+  `${typeof ivState.project.basic.guests}/${ivState.project.basic.guests}`);
+
+/* 已有内容的文本区：默认不勾，勾了就是整段替换（成稿里已并入原话，不会丢信息） */
+const ivAgain = IVAPI.composeDraft(ivState, IVAPI.plan(ivState), { 'goal-main': '补充：覆盖两个校区' });
+const ivGoalAgain = ivAgain.find((r) => r.key === 'goal');
+check('已填字段被标记为需确认后才替换',
+  ivGoalAgain?.filled === true && ivGoalAgain.appendable === true, JSON.stringify(ivGoalAgain));
+check('本地成稿把字段当前内容并了进去，替换后不会丢原话',
+  String(ivGoalAgain?.proposed).includes(ivState.project.basic.goal)
+  && String(ivGoalAgain?.proposed).includes('补充：覆盖两个校区'),
+  String(ivGoalAgain?.proposed));
+const ivGoalBefore = ivState.project.basic.goal;
+const ivSkip = IVAPI.apply(ivState, ivAgain, {});
+check('没勾选的字段一个都不动',
+  ivSkip.applied.length === 0 && ivSkip.replaced.length === 0 && ivState.project.basic.goal === ivGoalBefore);
+const ivReplace = IVAPI.apply(ivState, ivAgain, { goal: true });
+check('勾选后是整段替换，而不是把新内容拼在后面',
+  ivReplace.replaced.join(',') === 'goal'
+  && ivState.project.basic.goal === ivGoalAgain.proposed
+  && !ivState.project.basic.goal.includes('\n'),
+  String(ivState.project.basic.goal));
+check('替换过的字段标记为用户填写', ivState.project.meta.basic.goal === 'user');
+const ivStale = [{ key: 'venue', label: '活动地点', proposed: '体育馆', current: '科创中心一层展厅', filled: true, appendable: false, source: 'user' }];
+const ivStaleResult = IVAPI.apply(ivState, ivStale, { venue: true });
+check('已填的非文本字段即使被勾选也不会被改写',
+  ivState.project.basic.venue === '科创中心一层展厅' && ivStaleResult.skipped.includes('venue'));
+
+/* AI 追问的白名单与去重 */
+const ivFakeAi = IVAPI.normaliseAiQuestions({ questions: [
+  { key: 'approval', ask: '审批走哪个部门？' },
+  { key: 'unknown-field', ask: '不在白名单里的字段' },
+  { key: '', ask: '字段名为空' },
+  { key: 'approval', ask: '审批走哪个部门？' },
+  { key: 'goal', ask: '目标怎么量化？' },
+  { key: 'audience', ask: '主要面向谁？' },
+  { key: 'guests', ask: '预计多少人？' }
+] }, []);
+check('AI 追问只保留白名单内的字段', ivFakeAi.every((q) => IVAPI.AI_KEYS.includes(q.key)), JSON.stringify(ivFakeAi.map((q) => q.key)));
+check('AI 追问去掉重复与非法问题', ivFakeAi.length === 4 && new Set(ivFakeAi.map((q) => q.ask)).size === 4, JSON.stringify(ivFakeAi.map((q) => q.ask)));
+check('AI 追问补上字段中文名与控件类型', ivFakeAi.every((q) => q.label && q.type && q.ai === true));
+const ivStyledAi = IVAPI.normaliseAiQuestions({ questions: [
+  { key: 'approval', ask: '审批走哪个部门？', style: '边界', why: '漏审批会被卡' },
+  { key: 'goal', ask: '目标怎么量化？', style: '不存在的句式', why: '' }
+] }, []);
+check('AI 追问保留缺口说明', ivStyledAi[0]?.why === '漏审批会被卡', JSON.stringify(ivStyledAi[0]?.why));
+check('AI 追问的句式只接受六类之一，非法值留空',
+  ivStyledAi[0]?.style === '边界' && ivStyledAi[1]?.style === '',
+  JSON.stringify(ivStyledAi.map((q) => q.style)));
+const ivManyAi = IVAPI.normaliseAiQuestions({ questions: Array.from({ length: 8 }, (_, i) => ({ key: 'audience', ask: `问题 ${i}` })) }, []);
+check('AI 追问最多 5 条', ivManyAi.length === 5, String(ivManyAi.length));
+
+/* 草稿：关掉弹窗再打开不丢答案 */
+IVAPI.draftOf(store.state).answers.probe = 'x';
+check('访谈草稿写入 state.ui.interview', store.state.ui.interview.answers.probe === 'x');
+IVAPI.resetDraft(store.state);
+check('重置草稿后清空答案', Object.keys(store.state.ui.interview.answers).length === 0);
+
+/* UI 冒烟：问题卡、进度、确认清单、真实 click 路径 */
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.project.basic = { type: '科技文化节', name: '校园科技文化节', date: '2026-05-18', goal: '已有目标：让新生认识社团' };
+store.state.project.meta.basic = { type: 'user', name: 'user', date: 'user', goal: 'user' };
+const manifestView = window.WB.views.manifest;
+check('信息表视图导出了问答式补全入口',
+  typeof manifestView.openInterview === 'function' && typeof manifestView.interview?.confirm === 'function');
+manifestView.openInterview();
+const ivBox = document.getElementById('interview');
+const ivSession = manifestView.interview.session;
+check('问答弹窗已打开', ivBox.classList.contains('is-open') === true);
+check('访谈按活动类型生成了问题', ivSession.questions.length >= 5, `问题 ${ivSession.questions.length} 个`);
+const ivIds = ivSession.questions.map((q) => q.id);
+check('弹窗里已填的类型/名称/日期不再出现', !ivIds.some((id) => ['type', 'name', 'date'].includes(id)), ivIds.join(','));
+const ivPlanHtml = manifestView.interview.html();
+check('问题卡渲染出追问、输入控件与进度',
+  ivPlanHtml.includes('data-interview-input=') && ivPlanHtml.includes('iv-ask') && ivPlanHtml.includes('iv-dot'));
+check('问题卡没有 undefined', !ivPlanHtml.includes('undefined'));
+check('问题卡先讲清缺口再让用户回答',
+  ivPlanHtml.includes('iv-why') && ivPlanHtml.includes('缺这一项会怎样'));
+manifestView.interview.go(ivIds.indexOf('goal-main'));
+const ivGoalHtml = manifestView.interview.html();
+check('已有内容的字段在问题卡上被标出并显示现值',
+  ivGoalHtml.includes('已有内容') && ivGoalHtml.includes('已有目标'));
+
+const ivDraft = window.WB.interview.draftOf(store.state);
+ivSession.questions.forEach((q, i) => { ivDraft.answers[q.id] = ivDraft.answers[q.id] || `回答${i + 1}`; });
+manifestView.interview.render();
+check('答题后进度圆点标记为已完成', manifestView.interview.html().includes('is-done'));
+await manifestView.interview.compose();
+check('存在已填字段时进入确认步骤', ivSession.stage === 'confirming', ivSession.stage);
+const ivConfirmHtml = manifestView.interview.html();
+check('确认清单渲染出勾选项与替换口径', ivConfirmHtml.includes('data-interview-choice=') && ivConfirmHtml.includes('替换'));
+check('空字段默认勾选', /data-interview-choice="venue"[^>]*checked/.test(ivConfirmHtml));
+check('已有内容的目标默认不勾选', /data-interview-choice="goal"[^>]*\/>/.test(ivConfirmHtml) && !/data-interview-choice="goal"[^>]*checked/.test(ivConfirmHtml));
+check('确认清单没有 undefined', !ivConfirmHtml.includes('undefined'));
+check('确认清单给出替换前后的对照', ivConfirmHtml.includes('现在：') && ivConfirmHtml.includes('已有目标'));
+check('确认清单提供全部勾选 / 全部取消',
+  ivConfirmHtml.includes('data-interview-choiceall="1"') && ivConfirmHtml.includes('data-interview-choiceall="0"'));
+ivBox.emit('click', { target: { closest: (selector) => (selector === '[data-interview-choiceall]' ? { dataset: { interviewChoiceall: '0' } } : null) } });
+check('点「全部取消」后所有字段都不写入',
+  Object.values(ivSession.choices).every((open) => open === false), JSON.stringify(ivSession.choices));
+ivBox.emit('click', { target: { closest: (selector) => (selector === '[data-interview-choiceall]' ? { dataset: { interviewChoiceall: '1' } } : null) } });
+check('点「全部勾选」后所有字段都写入',
+  Object.values(ivSession.choices).every((open) => open === true), JSON.stringify(ivSession.choices));
+/* 确认步骤点「上一题」要回到问答，而不是再渲染一遍确认清单 */
+manifestView.interview.step(-1);
+check('确认清单点上一题回到问答',
+  ivSession.stage === 'asking' && manifestView.interview.html().includes('data-interview-input='),
+  ivSession.stage);
+await manifestView.interview.compose();
+check('返回后再生成仍然进入确认步骤', ivSession.stage === 'confirming', ivSession.stage);
+const ivGoalBefore2 = store.state.project.basic.goal;
+ivSession.choices.goal = true;
+manifestView.interview.confirm();
+check('确认后空字段被自动填入', U.text(store.state.project.basic.venue).length > 0, store.state.project.basic.venue);
+check('确认后已有内容的目标被整段替换，原话仍在成稿里',
+  store.state.project.basic.goal.startsWith(ivGoalBefore2)
+  && !store.state.project.basic.goal.includes('\n')
+  && store.state.project.basic.goal.includes('（衡量：'),
+  String(store.state.project.basic.goal));
+check('写入后草稿被清空', Object.keys(window.WB.interview.draftOf(store.state).answers).length === 0);
+check('问答式补全写入变更记录', store.state.log.some((entry) => String(entry.detail).includes('问答式补全')));
+check('确认后弹窗收起', ivBox.classList.contains('is-open') === false);
+
+/* 忙碌中再点要有提示，不能静默吞掉点击 */
+ivSession.busy = true;
+ivBox.classList.add('is-open');
+manifestView.interview.compose();
+check('忙碌中再点「生成并填入」会给出提示而不是没反应',
+  String(document.getElementById('toast').textContent).includes('稍等'),
+  document.getElementById('toast').textContent);
+ivSession.busy = false;
+
+/* AI 整理成稿的兜底：超时或报错都退回本地成稿，绝不卡住 */
+const ivTimeout = manifestView.withTimeout;
+check('视图导出了超时兜底助手与超时阈值', typeof ivTimeout === 'function' && manifestView.AI_POLISH_TIMEOUT > 0);
+const ivSlow = new Promise((resolve) => setTimeout(() => resolve('late'), 300));
+const ivStarted = Date.now();
+const ivFast = await ivTimeout(ivSlow, 20, 'fallback');
+check('AI 超时会退回本地成稿', ivFast === 'fallback' && Date.now() - ivStarted < 200, `${ivFast}/${Date.now() - ivStarted}ms`);
+const ivFailed = await ivTimeout(Promise.reject(new Error('boom')), 50, 'fallback');
+check('AI 报错也会退回本地成稿', ivFailed === 'fallback');
+check('AI 正常返回时不改动结果',
+  (await ivTimeout(Promise.resolve('polished'), 50, 'fallback')) === 'polished');
+
+/* 真实 click：进度圆点跳题、关闭按钮收起 */
+manifestView.openInterview();
+const ivClickBox = document.getElementById('interview');
+ivClickBox.emit('click', { target: { closest: (selector) => (selector === '[data-interview-jump]' ? { dataset: { interviewJump: '2' } } : null) } });
+check('点击进度圆点跳到第 3 问', manifestView.interview.session.index === 2, String(manifestView.interview.session.index));
+ivClickBox.emit('click', { target: { closest: (selector) => (selector === '.close-interview' ? {} : null) } });
+check('点击关闭按钮收起弹窗', ivBox.classList.contains('is-open') === false);
+/* AI 在线路径（假 fetch，不联网）：成稿要真的用上 AI 文本，失败要退回本地而不是卡住 */
+const stubAi = (ok) => {
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/api/health')) {
+      return { ok: true, json: async () => ({ providers: { deepseek: true, yoshub: false } }) };
+    }
+    if (!ok) return { ok: false, status: 502, json: async () => ({ error: 'DeepSeek 请求失败（HTTP 502）' }) };
+    return { ok: true, json: async () => ({ data: { basic: { goal: 'AI 成稿目标', content: 'AI 成稿内容', constraint: 'AI 成稿约束' } } }) };
+  };
+};
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.project.basic = { type: '科技文化节', name: '校园科技文化节', date: '2026-05-18' };
+store.state.project.meta.basic = { type: 'user', name: 'user', date: 'user' };
+stubAi(true);
+await window.WB.ai.check();
+check('假 fetch 下 AI 判定为可用', window.WB.ai.ready === true);
+manifestView.openInterview();
+const aiDraft = window.WB.interview.draftOf(store.state);
+manifestView.interview.session.questions.forEach((q, i) => {
+  aiDraft.answers[q.id] = ({ guests: '900', budget: '50000' })[q.id] || `回答${i + 1}`;
+});
+const aiApplyBtn = document.getElementById('interviewApply');
+const pendingCompose = manifestView.interview.compose();
+check('生成期间按钮进入「生成中…」并禁用',
+  aiApplyBtn.disabled === true && aiApplyBtn.textContent === '生成中…', `${aiApplyBtn.disabled}/${aiApplyBtn.textContent}`);
+await pendingCompose;
+check('生成结束后按钮恢复可用', aiApplyBtn.disabled === false && aiApplyBtn.textContent === '生成并填入');
+check('AI 在线时成稿真的用上 AI 文本',
+  store.state.project.basic.goal === 'AI 成稿目标' && store.state.project.basic.content === 'AI 成稿内容',
+  String(store.state.project.basic.goal));
+check('AI 成稿标记为 AI 建议', store.state.project.meta.basic.goal === 'ai', store.state.project.meta.basic.goal);
+check('直接字段仍是用户填写', store.state.project.meta.basic.venue === 'user' && store.state.project.basic.venue === '回答1');
+check('数字字段经归一化仍是数字', store.state.project.basic.guests === 900, String(store.state.project.basic.guests));
+
+/* AI 返回 502：退回本地成稿，不卡住、有提示 */
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.project.basic = { type: '科技文化节', name: '校园科技文化节', date: '2026-05-18' };
+store.state.project.meta.basic = { type: 'user', name: 'user', date: 'user' };
+stubAi(false);
+manifestView.openInterview();
+const failDraft = window.WB.interview.draftOf(store.state);
+manifestView.interview.session.questions.forEach((q, i) => { failDraft.answers[q.id] = `本地${i + 1}`; });
+await manifestView.interview.compose();
+check('AI 报错时退回本地成稿而不是卡住',
+  manifestView.interview.session.stage === 'closed' && String(store.state.project.basic.goal).includes('（衡量：'),
+  `${manifestView.interview.session.stage}/${store.state.project.basic.goal}`);
+check('AI 报错后按钮恢复可用', aiApplyBtn.disabled === false && aiApplyBtn.textContent === '生成并填入');
+/* 恢复离线判定，避免影响后续断言 */
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ providers: { deepseek: false, yoshub: false } }) });
+await window.WB.ai.check();
+check('恢复为离线模式', window.WB.ai.ready === false);
+/* 一题都没答就点生成，也要给出提示 */
+IVAPI.resetDraft(store.state);
+manifestView.openInterview();
+document.getElementById('toast').textContent = '';
+manifestView.interview.compose();
+check('一题都没答时点「生成并填入」会给出提示',
+  String(document.getElementById('toast').textContent).includes('还没有回答'),
+  document.getElementById('toast').textContent);
+/* ── 11b. 引导参考：常见做法 / 示例答案 / 模糊回答不算回答 ── */
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.project.basic = { type: '科技文化节', name: '校园科技文化节', date: '2026-05-18' };
+store.state.project.meta.basic = { type: 'user', name: 'user', date: 'user' };
+const gState = store.state;
+const gContentGuide = IVAPI.guideFor(gState, { key: 'content' });
+check('每道题都配了可直接采用的参考', Boolean(gContentGuide && gContentGuide.chips.length >= 5 && gContentGuide.samples.length >= 1),
+  JSON.stringify(gContentGuide && { chips: gContentGuide.chips.length, samples: gContentGuide.samples.length }));
+check('参考默认来自本地参考库而不是 AI', gContentGuide.fromAi === false);
+check('没有参考的字段返回 null，而不是渲染一个空块', IVAPI.guideFor(gState, { key: 'coOrganizer' }) === null);
+
+gState.project.basic.type = '运动会';
+const gSportGuide = IVAPI.guideFor(gState, { key: 'content' });
+check('参考内容随活动类型变化',
+  gSportGuide.chips.map((c) => c.value).join(',') !== gContentGuide.chips.map((c) => c.value).join(','),
+  `${gSportGuide.chips.length} 条 vs ${gContentGuide.chips.length} 条`);
+gState.project.basic.type = '科技文化节';
+
+const gGuests = IVAPI.guideFor(gState, { key: 'guests' });
+check('人数这类字段给的是能直接写入的参考档位',
+  gGuests.chips.every((c) => c.value && Number.isFinite(Number(c.value))), JSON.stringify(gGuests.chips));
+
+/* 点选常见做法：三个文本区可拼可撤，其余字段直接替换 */
+const gChipA = gContentGuide.chips[0].value;
+const gChipB = gContentGuide.chips[1].value;
+const gOne = IVAPI.toggleChip('content', '', { value: gChipA });
+check('点一下常见做法就写进内容', gOne === gChipA, gOne);
+const gTwo = IVAPI.toggleChip('content', gOne, { value: gChipB });
+check('再点一条会拼在后面', gTwo === `${gChipA}；${gChipB}`, gTwo);
+check('已点过的做法会被标为选中', IVAPI.chipsIn('content', gTwo).length === 2, String(IVAPI.chipsIn('content', gTwo).length));
+check('再点一次就取消这条做法', IVAPI.toggleChip('content', gTwo, { value: gChipA }) === gChipB);
+check('非文本字段点选是替换而不是拼接', IVAPI.toggleChip('venue', '旧场地', { value: '新场地' }) === '新场地');
+check('输入框里写着「你帮我想」时，点参考是整段替换而不是拼在废话后面',
+  IVAPI.toggleChip('content', '你帮我想', { value: gChipA }) === gChipA);
+
+/* 模糊回答不再算回答 */
+check('「你帮我想」被识别为模糊回答', IVAPI.isVague('你帮我想') === true);
+check('「待确认」被识别为模糊回答', IVAPI.isVague('待确认') === true);
+check('「随便吧」被识别为模糊回答', IVAPI.isVague('随便吧') === true);
+check('正常回答不会被误判', IVAPI.isVague('创客展区、舞台演出、互动体验') === false && IVAPI.isVague('') === false);
+const gQuestions = IVAPI.plan(gState);
+const gVagueRows = IVAPI.composeDraft(gState, gQuestions,
+  { 'goal-main': '你帮我想', 'content-area': '你看着办', 'content-interact': '创客展区' });
+check('模糊回答不会写进拟填清单', !gVagueRows.some((r) => r.key === 'goal'), gVagueRows.map((r) => r.key).join(','));
+check('模糊回答绝不会变成表单里的字',
+  !gVagueRows.some((r) => `${r.proposed}`.includes('你帮我想') || `${r.proposed}`.includes('你看着办')),
+  JSON.stringify(gVagueRows));
+check('同一字段里有真实回答时照样成稿', gVagueRows.some((r) => r.key === 'content'));
+check('模糊回答会被统计出来提示用户',
+  IVAPI.vagueAnswers(gQuestions, { 'goal-main': '你帮我想', 'content-area': '你看着办' }).length === 2);
+
+/* AI 再给两版：合并进参考块并标记来源 */
+const gAiGuide = IVAPI.withAiOptions(gContentGuide, ['版本一', '版本二', '版本三', '版本四']);
+check('AI 参考覆盖示例并最多保留 3 版', gAiGuide.fromAi === true && gAiGuide.samples.length === 3, JSON.stringify(gAiGuide.samples));
+check('AI 参考不会冲掉已有的常见做法', gAiGuide.chips.length === gContentGuide.chips.length);
+check('没有 AI 结果时参考块保持原样', IVAPI.withAiOptions(gContentGuide, []).fromAi === false);
+
+/* 界面路径：问题卡里能看到参考块，点做法/示例真的写进输入框 */
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.project.basic = { type: '科技文化节', name: '校园科技文化节', date: '2026-05-18' };
+store.state.project.meta.basic = { type: 'user', name: 'user', date: 'user' };
+manifestView.openInterview();
+const gIdx = manifestView.interview.session.questions.findIndex((q) => q.id === 'content-area');
+check('访谈里能找到「活动内容」这一问', gIdx >= 0, String(gIdx));
+manifestView.interview.go(gIdx);
+const gQuestion = manifestView.interview.session.questions[gIdx];
+const gChipHtml = manifestView.interview.html();
+check('问题卡里渲染出参考块与「常见做法」标题',
+  gChipHtml.includes('iv-guide') && gChipHtml.includes('常见做法'));
+check('参考块给出可点选的常见做法', gChipHtml.includes('data-interview-chip='));
+check('参考块给出「AI 再给两版」入口', gChipHtml.includes('data-interview-aidraft'));
+check('折叠状态先不铺开示例，留一个展开入口',
+  gChipHtml.includes('data-interview-withsamples') && !gChipHtml.includes('data-interview-sample='));
+check('参考块没有 undefined', !gChipHtml.includes('undefined'));
+
+const gClickBox2 = document.getElementById('interview');
+gClickBox2.emit('click', { target: { closest: (selector) => (selector === '[data-interview-withsamples]' ? {} : null) } });
+const gSampleHtml = manifestView.interview.html();
+check('展开后能看到整段示例并一键采用',
+  gSampleHtml.includes('data-interview-sample=') && gSampleHtml.includes('用这一版'));
+check('展开示例后仍能收起', gSampleHtml.includes('收起示例'));
+
+gClickBox2.emit('click', { target: { closest: (selector) => (selector === '[data-interview-chip]' ? { dataset: { interviewChip: gChipA } } : null) } });
+check('点一下常见做法就写进这一题的输入框',
+  `${window.WB.interview.draftOf(store.state).answers[gQuestion.id] || ''}`.includes(gChipA),
+  String(window.WB.interview.draftOf(store.state).answers[gQuestion.id]));
+
+/* 输入框里还留着「你帮我想」时点参考，要整段替换掉那句废话 */
+window.WB.interview.draftOf(store.state).answers[gQuestion.id] = '你帮我想';
+manifestView.interview.render();
+gClickBox2.emit('click', { target: { closest: (selector) => (selector === '[data-interview-chip]' ? { dataset: { interviewChip: gChipB } } : null) } });
+check('模糊回答会参考时被整段替换掉',
+  window.WB.interview.draftOf(store.state).answers[gQuestion.id] === gChipB,
+  String(window.WB.interview.draftOf(store.state).answers[gQuestion.id]));
+
+const gSample = IVAPI.guideFor(store.state, gQuestion).samples[0];
+gClickBox2.emit('click', { target: { closest: (selector) => (selector === '[data-interview-sample]' ? { dataset: { interviewSample: '0' } } : null) } });
+check('「用这一版」把整段示例填进输入框',
+  window.WB.interview.draftOf(store.state).answers[gQuestion.id] === gSample,
+  String(window.WB.interview.draftOf(store.state).answers[gQuestion.id]));
+
+/* 全都写成「你帮我想」：不写入，并明确指路 */
+manifestView.interview.session.questions.forEach((q) => { window.WB.interview.draftOf(store.state).answers[q.id] = '你帮我想'; });
+manifestView.interview.render();
+document.getElementById('toast').textContent = '';
+await manifestView.interview.compose();
+check('全是模糊回答时不写入，并提示去看常见做法',
+  manifestView.interview.session.stage === 'asking'
+  && String(document.getElementById('toast').textContent).includes('帮我想'),
+  `${manifestView.interview.session.stage}/${document.getElementById('toast').textContent}`);
+check('模糊回答数量被记下来，用于写入后的说明',
+  manifestView.interview.session.skippedVague === manifestView.interview.session.questions.length,
+  String(manifestView.interview.session.skippedVague));
+
+/* AI：成稿里的占位词要拦掉，拟稿要接进参考块，成稿请求要带上字段当前内容 */
+let gComposeInput = null;
+globalThis.fetch = async (url, options) => {
+  if (String(url).includes('/api/health')) {
+    return { ok: true, json: async () => ({ providers: { deepseek: true, yoshub: false } }) };
+  }
+  const body = JSON.parse(options?.body || '{}');
+  if (body.input?.mode === 'compose') gComposeInput = body.input;
+  if (body.input?.mode === 'draft') {
+    return { ok: true, json: async () => ({ data: { options: ['版本一：三板块 + 两处互动', '版本二：纯白天展览', '版本三：市集加工作坊'] } }) };
+  }
+  if (body.input?.mode === 'compose') {
+    return { ok: true, json: async () => ({ data: { basic: { goal: '待确认', content: '上午创客展区，下午打卡集章', constraint: '' } } }) };
+  }
+  return { ok: true, json: async () => ({ data: {} }) };
+};
+await window.WB.ai.check();
+check('假 fetch 下 AI 判定为可用（拟稿用）', window.WB.ai.ready === true);
+check('占位词识别：待确认是占位词，正常描述不是',
+  IVAPI.isPlaceholder('待确认') === true && IVAPI.isPlaceholder('创客展区') === false);
+/* 让「已知约束」先有内容，验证它会被原样喂给 AI */
+gState.project.basic.constraint = '22:00 前必须结束';
+const gRows = IVAPI.composeDraft(gState, gQuestions,
+  { 'goal-main': '让新生认识 3 个社团', 'content-area': '创客展区', 'content-interact': '打卡集章', constraint: '不可使用食堂经费科目' });
+check('已填文本区的拟填行带着当前内容',
+  gRows.find((r) => r.key === 'constraint')?.current === '22:00 前必须结束',
+  String(gRows.find((r) => r.key === 'constraint')?.current));
+const gPolished = await IVAPI.composeAi(gState, gRows);
+check('AI 成稿请求带上「字段名 + 当前内容」的原文对照',
+  Array.isArray(gComposeInput?.当前内容)
+  && gComposeInput.当前内容.some((line) => line === '已知约束当前内容：22:00 前必须结束'),
+  JSON.stringify(gComposeInput?.当前内容));
+check('成稿请求把「当前内容」与「本次回答」分开给，便于重写而不是拼接',
+  Array.isArray(gComposeInput?.成稿字段)
+  && gComposeInput.成稿字段.some((item) => item.当前内容 === '22:00 前必须结束')
+  && gComposeInput.成稿字段.some((item) => String(item.本次回答).includes('不可使用食堂经费科目')),
+  JSON.stringify(gComposeInput?.成稿字段));
+const gPolishedGoal = gPolished.find((r) => r.key === 'goal');
+check('AI 交回「待确认」时不会被写进表单',
+  !`${gPolishedGoal?.proposed}`.includes('待确认'), String(gPolishedGoal?.proposed));
+check('AI 只对有效字段采用成稿，占位字段保留本地版本',
+  gPolished.find((r) => r.key === 'content')?.source === 'ai'
+  && gPolishedGoal?.source !== 'ai',
+  JSON.stringify(gPolished.map((r) => `${r.key}:${r.source}`)));
+manifestView.interview.go(gIdx);
+await manifestView.interview.aiDraft();
+const gAiGuide2 = manifestView.interview.session.guides[gQuestion.id];
+check('AI 就当前题给出可直接采用的 2–3 版',
+  gAiGuide2?.fromAi === true && gAiGuide2.samples.length === 3, JSON.stringify(gAiGuide2?.samples));
+check('AI 参考接进参考块并自动展开',
+  manifestView.interview.html().includes('AI 给的参考')
+  && manifestView.interview.html().includes('data-interview-sample='));
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ providers: { deepseek: false, yoshub: false } }) });
+await window.WB.ai.check();
+check('拟稿测试后恢复离线判定', window.WB.ai.ready === false);
+manifestView.interview.close();
+IVAPI.resetDraft(store.state);
+
+/* ── 12. 参考件（上传参考）：Word 解析、结构与字段对齐、覆盖核对 ── */
+const DX = window.WB.docx;
+check('参考件模块已加载', Boolean(DX && DX.parseDocumentXml && DX.readFile));
+const refRejected = await DX.readFile({ name: 'a.pdf' }).then(() => '', (error) => error.message);
+check('参考件：只认 .docx / .md / .txt 三类参考文件', refRejected.includes('支持'), refRejected);
+
+const REF_XML = [
+  '<w:document><w:body>',
+  '<w:p><w:pPr><w:pStyle w:val="1"/></w:pPr><w:r><w:t>一、活动基本信息</w:t></w:r></w:p>',
+  '<w:tbl>',
+  '<w:tr><w:tc><w:p><w:r><w:t>&#x6d3b;&#x52a8;&#x540d;&#x79f0;</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>示例活动</w:t></w:r></w:p></w:tc></w:tr>',
+  '<w:tr><w:tc><w:p><w:r><w:t>1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>负责人姓名</w:t></w:r></w:p></w:tc>',
+  '<w:tc><w:p><w:r><w:t>张三</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>联系方式</w:t></w:r></w:p></w:tc>',
+  '<w:tc><w:p><w:r><w:t>13800000000</w:t></w:r></w:p></w:tc></w:tr>',
+  '<w:tr><w:tc><w:p><w:r><w:t>二、活动内容与流程</w:t></w:r></w:p></w:tc></w:tr>',
+  '</w:tbl>',
+  '<w:p><w:r><w:t>0.748元/张</w:t></w:r></w:p>',
+  '<w:p><w:r><w:t>3.在提交电子版之前，请把文件重命名为“社团名称－活动名称”。</w:t></w:r></w:p>',
+  '<w:p><w:r><w:t>六、经费预算</w:t></w:r></w:p>',
+  '</w:body></w:document>'
+].join('');
+const refParsed = DX.parseDocumentXml(REF_XML);
+check('参考件：栏目按文档顺序合并标题与表格整行小标题',
+  refParsed.sections.map((section) => section.heading).join('|') === '一、活动基本信息|二、活动内容与流程|六、经费预算',
+  refParsed.sections.map((section) => section.heading).join('|'));
+check('参考件：字段清单只留字段名，剔除人名与电话',
+  refParsed.fields.join('|') === '活动名称|负责人姓名|联系方式', refParsed.fields.join('|'));
+check('参考件：数值行与说明句不会被误当成栏目',
+  !refParsed.sections.some((section) => /元\/张|重命名/.test(section.heading)),
+  refParsed.sections.map((section) => section.heading).join('|'));
+check('参考件：XML 实体被还原成中文', refParsed.text.includes('负责人姓名') && refParsed.text.includes('活动名称'));
+check('参考件：原文渲染成 Markdown 管道表格',
+  /\n\| .+ \|\n\| --- \|/.test(refParsed.text), refParsed.text.slice(0, 120));
+
+const sampleBytes = new Uint8Array(fs.readFileSync(path.join(root, 'samples', '示例-学院活动策划书模板.docx')));
+const sampleEntry = DX.findEntry(sampleBytes, 'word/document.xml');
+check('参考件：能从真实 .docx 里定位正文条目（deflate 压缩）',
+  Boolean(sampleEntry) && sampleEntry.method === 8, sampleEntry ? `method=${sampleEntry.method}` : '未找到');
+const sampleRef = DX.parseDocumentXml(new TextDecoder('utf-8').decode(await DX.inflateEntry(sampleBytes, 'word/document.xml')));
+check('参考件：真实 Word 样本解压出 10 个以上栏目', sampleRef.sections.length >= 10, String(sampleRef.sections.length));
+check('参考件：摘要把栏目数、字段数、字数都写出来',
+  /栏目/.test(DX.summaryOf(sampleRef)) && /字段/.test(DX.summaryOf(sampleRef)) && /字/.test(DX.summaryOf(sampleRef)),
+  DX.summaryOf(sampleRef));
+
+const alignedDoc = { sections: [
+  { heading: '一、活动基本信息', body: '| 活动名称 | 示例 |\n| --- | --- |\n| 负责人姓名 | 张三 |\n| 联系方式 | 13800000000 |' },
+  { heading: '二、活动内容与流程', body: '两大板块。' },
+  { heading: '六、经费预算', body: '| 科目 | 金额 |' }
+] };
+const alignedReport = DX.matchReport(refParsed, alignedDoc);
+check('参考件核对：栏目与字段全中时显示 x/x',
+  alignedReport.columns.covered === alignedReport.columns.total && alignedReport.fields.covered === alignedReport.fields.total,
+  JSON.stringify(alignedReport));
+const gapReport = DX.matchReport(refParsed, { sections: [{ heading: '一、活动基本信息', body: '| 活动名称 | 示例 |' }] });
+check('参考件核对：缺项按原始文字列出来',
+  gapReport.fields.missing.includes('联系方式') && gapReport.columns.missing.includes('六、经费预算'),
+  JSON.stringify(gapReport));
+check('参考件核对：没有参考件时返回 null', DX.matchReport(null, alignedDoc) === null);
+
+/* 挂上参考后：章节换成参考栏目，生成请求必须带「参考样例」 */
+const refKey = 'application';
+const refPrevUser = state.user;
+const hadRefOutput = Boolean(state.project.outputs[refKey]);
+const prevRefMaterial = state.materials[refKey];
+store.setUser({ name: '参考测试同学', role: 'organizer' });
+state.project.outputs[refKey] = true;
+state.materials[refKey] = {
+  title: '活动申报表', templateName: '默认章节', source: 'ai', generatedAt: new Date().toISOString(),
+  sections: window.SKILLS.materials['activity-application'].sections.map((heading) => ({ heading, body: '待补充' }))
+};
+state.ui.openMaterial = refKey;
+
+/* 真机路径：uploadReference 读一份真实 .docx 再挂上去 */
+await window.WB.views.material.uploadReference(refKey, {
+  name: '示例-学院活动策划书模板.docx',
+  arrayBuffer: async () => sampleBytes.slice().buffer
+});
+check('上传参考：真实 .docx 解析后挂到该材料上',
+  state.references[refKey]?.name === '示例-学院活动策划书模板.docx' && state.references[refKey].sections.length >= 10,
+  `${state.references[refKey]?.sections.length} 栏目`);
+check('上传参考：字段与原文一并留下，供核对与提示词使用',
+  state.references[refKey].fields.length >= 2 && String(state.references[refKey].text).includes('申报单位'),
+  JSON.stringify(state.references[refKey]?.fields));
+
+/* 只读访客：上传参考要被拦下 */
+store.setUser({ name: '只读同学', role: 'viewer' });
+const keptReference = state.references[refKey];
+await window.WB.views.material.uploadReference(refKey, { name: 'x.docx', arrayBuffer: async () => new Uint8Array([1, 2]).buffer });
+check('上传参考：只读访客被拦下，原参考不被替换', state.references[refKey] === keptReference);
+store.setUser({ name: '参考测试同学', role: 'organizer' });
+
+/* 拖拽上传：把文件丢到卡片上，等同于点「上传参考」 */
+const panelElement = document.getElementById('materialPanel');
+const dragState = { on: 0, prevented: 0 };
+const zoneElement = {
+  dataset: { materialDropzone: refKey },
+  classList: { add: () => { dragState.on += 1; }, remove: () => { dragState.on -= 1; } },
+  contains: () => false
+};
+const dragEventOf = (files, types) => ({
+  target: { closest: (selector) => (selector === '[data-material-dropzone]' ? zoneElement : null) },
+  dataTransfer: { files, types: types || ['Files'] },
+  relatedTarget: null,
+  preventDefault: () => { dragState.prevented += 1; }
+});
+panelElement.emit('dragover', dragEventOf([{ name: '拖进来的样表.docx' }]));
+check('拖拽上传：文件悬停在卡片上会高亮该卡片', dragState.on === 1, String(dragState.on));
+delete state.references[refKey];
+/* 拖拽是外部动作，不会让输入框失焦：落点里要先手动收掉正在编辑的块 */
+let flushes = 0;
+const editingBlock = {
+  tagName: 'DIV',
+  closest: (selector) => (selector === '[data-material-block]' ? editingBlock : null),
+  blur: () => { flushes += 1; }
+};
+document.activeElement = editingBlock;
+await panelElement.emit('drop', dragEventOf([{ name: '拖进来的样表.docx', arrayBuffer: async () => sampleBytes.slice().buffer }]));
+document.activeElement = null;
+check('拖拽上传：放下前先收掉正在编辑的块，重绘不会冲掉未提交的改动', flushes === 1, String(flushes));
+check('拖拽上传：把 .docx 丢到卡片上就挂成参考件',
+  state.references[refKey]?.name === '拖进来的样表.docx' && state.references[refKey].sections.length >= 10,
+  `${state.references[refKey]?.sections.length} 栏目`);
+check('拖拽上传：落点高亮在放下后清掉', dragState.on === 0, String(dragState.on));
+
+const savedToast = window.WB.toast;
+const refToasts = [];
+window.WB.toast = (text) => { refToasts.push(String(text)); };
+await panelElement.emit('drop', dragEventOf([{ name: '说明书.pdf' }]));
+check('拖拽上传：不支持的格式会提示且不替换参考',
+  state.references[refKey]?.name === '拖进来的样表.docx' && refToasts.some((text) => text.includes('支持 .docx')),
+  refToasts.join(' / '));
+window.WB.toast = savedToast;
+
+dragState.prevented = 0;
+panelElement.emit('dragover', dragEventOf([], ['text/plain']));
+check('拖拽上传：拖选中文字不会被当成参考件拦下', dragState.prevented === 0, String(dragState.prevented));
+window.WB.views.material.render();
+check('材料卡片带参考拖放区标记，且操作区给出虚线「上传参考」入口',
+  document.querySelector('#materialList').innerHTML.includes(`data-material-dropzone="${refKey}"`)
+  && document.querySelector('#materialList').innerHTML.includes('reference-add'));
+
+/* 换成 3 栏目的小参考，断言生成链路 */
+state.references[refKey] = { id: 'ref-test', name: '往届申报表.docx', kind: 'docx', createdAt: new Date().toISOString(), ...refParsed };
+window.WB.views.material.render();
+const refHtml = document.querySelector('#materialList').innerHTML;
+check('材料卡片：有参考时显示文件名、覆盖核对与换/删入口',
+  refHtml.includes('reference-chip') && refHtml.includes('reference-check') && refHtml.includes('data-material-reference-remove'),
+  refHtml.slice(0, 0) || '');
+check('材料卡片：编辑器里给出参考面板（栏目 / 字段 / 原文）',
+  refHtml.includes('material-reference') && refHtml.includes('reference-tag') && refHtml.includes('reference-source'));
+
+let gRefInput = null;
+globalThis.fetch = async (url, options) => {
+  const body = JSON.parse(options?.body || '{}');
+  if (String(url).includes('/api/health')) return { ok: true, json: async () => ({ providers: { deepseek: true, yoshub: false } }) };
+  if (String(url).includes('/api/material')) {
+    gRefInput = body.input;
+    return { ok: true, json: async () => ({ data: { title: '活动申报表', sections: refParsed.sections.map((section, index) => ({ heading: section.heading, body: index ? '正文' : '| 活动名称 | 示例 |' })) } }) };
+  }
+  return { ok: true, json: async () => ({}) };
+};
+await window.WB.ai.check();
+const refOk = await window.WB.views.material.generateOne(refKey, { silent: true });
+check('挂上参考后能生成', refOk === true);
+check('生成请求带「参考样例」：栏目 + 字段清单 + 原文',
+  gRefInput?.参考样例?.栏目?.length === 3
+  && gRefInput.参考样例.字段清单.includes('活动名称')
+  && String(gRefInput.参考样例.原文).includes('负责人姓名'),
+  JSON.stringify(gRefInput?.参考样例?.栏目));
+check('生成后章节按参考栏目对齐（不是内置的 5 章）',
+  state.materials[refKey].sections.map((section) => section.heading).join('|') === '一、活动基本信息|二、活动内容与流程|六、经费预算',
+  state.materials[refKey].sections.map((section) => section.heading).join('|'));
+check('生成后文档记下章节来源是参考件',
+  state.materials[refKey].templateName === '参考《往届申报表.docx》', state.materials[refKey].templateName);
+
+/* ── 版式套件：参考 Word 的样式表 / 页面设置 / 页眉页脚也一并取出来 ── */
+const RAW_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const kitFixture = window.WB.ooxml.zip([
+  { name: '[Content_Types].xml', data: `${RAW_XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>` },
+  { name: '_rels/.rels', data: `${RAW_XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>` },
+  { name: 'word/_rels/document.xml.rels', data: `${RAW_XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>` },
+  { name: 'word/styles.xml', data: `${RAW_XML}<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="仿宋_GB2312"/><w:sz w:val="32"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="a"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="2"><w:name w:val="heading 1"/><w:basedOn w:val="a"/><w:pPr><w:keepNext/><w:jc w:val="center"/></w:pPr><w:rPr><w:rFonts w:eastAsia="黑体"/><w:b/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="3"><w:name w:val="heading 2"/><w:basedOn w:val="a"/><w:rPr><w:b/></w:rPr></w:style></w:styles>` },
+  { name: 'word/numbering.xml', data: `${RAW_XML}<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>` },
+  { name: 'word/header1.xml', data: `${RAW_XML}<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:p><w:r><w:t>XX大学学生活动申报表</w:t></w:r></w:p></w:hdr>` },
+  { name: 'word/_rels/header1.xml.rels', data: `${RAW_XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/></Relationships>` },
+  { name: 'word/media/logo.png', data: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) },
+  { name: 'word/document.xml', data: `${RAW_XML}<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>`
+    + '<w:p><w:pPr><w:pStyle w:val="2"/><w:jc w:val="center"/></w:pPr><w:r><w:t>一、活动基本信息</w:t></w:r></w:p>'
+    + '<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/></w:pPr><w:r><w:t>正文示例</w:t></w:r></w:p>'
+    + '<w:p><w:pPr><w:pStyle w:val="2"/></w:pPr><w:r><w:t>二、活动内容与流程</w:t></w:r></w:p>'
+    + '<w:p><w:pPr><w:pStyle w:val="3"/></w:pPr><w:r><w:t>（一）活动主题</w:t></w:r></w:p>'
+    + '<w:p><w:pPr><w:pStyle w:val="2"/></w:pPr><w:r><w:t>六、经费预算</w:t></w:r></w:p>'
+    + '<w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="8" w:color="000000"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="4000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>活动名称</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>示例</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>x</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>活动时间</w:t></w:r></w:p></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr></w:tbl>'
+    + '<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/></w:pPr><w:r><w:t>尾段</w:t></w:r></w:p>'
+    + '<w:sectPr><w:headerReference w:type="default" r:id="rId9"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="1134" w:bottom="850" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'
+    + '</w:body></w:document>' }
+]);
+const kit = await DX.styleKit(kitFixture, '学院申报表样表.docx');
+check('版式套件：样式表 / 编号 / 页眉图片一并取出', Boolean(kit)
+  && Boolean(kit.parts['word/styles.xml']) && Boolean(kit.parts['word/numbering.xml'])
+  && kit.refs.length === 1 && kit.refs[0].path === 'word/header1.xml' && kit.media.length === 1,
+  JSON.stringify({ parts: Object.keys(kit?.parts || {}), refs: kit?.refs?.length, media: kit?.media?.length }));
+check('版式套件：取到标题与正文的段落样本、标题样式号与模板字体',
+  Boolean(kit.pPr.heading1) && Boolean(kit.pPr.body) && kit.headingIds[1] === '2' && kit.fonts.includes('仿宋_GB2312'),
+  JSON.stringify({ headingIds: kit.headingIds, fonts: kit.fonts }));
+check('版式套件：页面设置与表格样式取到，并摘掉页眉引用（导出时重新挂）',
+  kit.sectPr.includes('w:top="850"') && !kit.sectPr.includes('headerReference')
+  && kit.tblPr.includes('w:sz="8"') && kit.tblGrid.includes('w:w="4000"'));
+check('版式套件：体积在本地存档预算内（< 700 KB）', kit.bytes < 700 * 1024, `${(kit.bytes / 1024).toFixed(1)} KB`);
+
+/* ── 按参考的版式导出 Word ── */
+state.references[refKey] = { ...state.references[refKey], kit };
+check('styleFor：挂了参考的产出能取到版式套件', window.WB.exporters.styleFor(refKey) === kit);
+const kitDoc = { title: '诗韵秋兴｜活动申报表', sections: [
+  { heading: '一、活动基本信息', body: '正文一' },
+  { heading: '六、经费预算', body: '| 科目 | 金额 |\n| --- | --- |\n| 场地 | 800 |' }
+] };
+const kitBytes = window.WB.exporters.materialToDocx(kitDoc, { style: kit });
+const kitEntries = window.WB.ooxml.readEntries(kitBytes);
+const kitNames = kitEntries.map((entry) => entry.name);
+const kitEntryText = (name) => new TextDecoder().decode((kitEntries.find((entry) => entry.name === name) || { data: new Uint8Array() }).data);
+check('导出：参考的样式表 / 编号 / 页眉 / 图片都进了包',
+  ['word/styles.xml', 'word/numbering.xml', 'word/header1.xml', 'word/_rels/header1.xml.rels', 'word/media/logo.png'].every((name) => kitNames.includes(name)),
+  kitNames.join(', '));
+check('导出：正文套用参考的段落样本、页面设置与页眉',
+  kitEntryText('word/document.xml').includes('<w:pStyle w:val="2"/>')
+  && kitEntryText('word/document.xml').includes('w:top="850"')
+  && kitEntryText('word/document.xml').includes('r:id="rId100"'));
+check('导出：表格套用参考的边框，列数不同时按参考总宽均分',
+  kitEntryText('word/document.xml').includes('w:sz="8" w:color="000000"')
+  && (kitEntryText('word/document.xml').match(/<w:gridCol w:w="4500"\/>/g) || []).length === 2
+  && (kitEntryText('word/document.xml').match(/<w:tcW w:w="4500" w:type="dxa"\/>/g) || []).length === 4,
+  (kitEntryText('word/document.xml').match(/<w:gridCol[^>]*\/>/g) || []).join(''));
+check('导出：列数与参考表格一致时照抄参考列宽', (() => {
+  const wide = window.WB.exporters.materialToDocx({ title: 't', sections: [{ heading: 'x', body: '| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |' }] }, { style: kit });
+  const xml = new TextDecoder().decode(window.WB.ooxml.readEntries(wide).find((entry) => entry.name === 'word/document.xml').data);
+  return xml.includes('<w:gridCol w:w="2000"/>') && xml.includes('<w:gridCol w:w="4000"/>') && xml.includes('<w:gridCol w:w="3000"/>');
+})());
+check('导出：样式表用的是参考的字体（不是内置等线）',
+  kitEntryText('word/styles.xml').includes('仿宋_GB2312') && kitEntryText('[Content_Types].xml').includes('/word/header1.xml'));
+const plainBytes = window.WB.exporters.materialToDocx(kitDoc, { style: null });
+check('导出：没挂参考时仍用内置版式（5 个部件 + 内置字体）',
+  window.WB.ooxml.readEntries(plainBytes).length === 5
+  && new TextDecoder().decode(window.WB.ooxml.readEntries(plainBytes).find((entry) => entry.name === 'word/styles.xml').data).includes('等线'));
+check('上传参考：真实 .docx 的版式套件随参考件一起落库（走 uploadReference）', await (async () => {
+  await window.WB.views.material.uploadReference(refKey, { name: '学院申报表样表.docx', arrayBuffer: async () => kitFixture.slice().buffer });
+  const saved = state.references[refKey];
+  return Boolean(saved?.kit?.pPr?.heading1) && saved.kit.media.length === 1;
+})());
+
+/* ── 按参考重排（AI）：栏目/字段/表格列照抄参考，值只来自本项目 ── */
+let reframeRequest = null;
+globalThis.fetch = async (url, options) => {
+  const body = JSON.parse(options?.body || '{}');
+  if (String(url).includes('/api/health')) return { ok: true, json: async () => ({ providers: { deepseek: true, yoshub: false } }) };
+  if (String(url).includes('/api/material')) {
+    reframeRequest = body;
+    return { ok: true, json: async () => ({ data: { title: '诗韵秋兴｜活动申报表', sections: [
+      { heading: '一、活动基本信息', body: '| 活动名称 | 诗韵秋兴 |' },
+      { heading: '二、活动内容与流程', body: '两大板块。' },
+      { heading: '（一）活动主题', body: '吟唱与手作。' },
+      { heading: '六、经费预算', body: '| 科目 | 金额 |' }
+    ] } }) };
+  }
+  return { ok: true, json: async () => ({}) };
+};
+await window.WB.ai.check();
+const beforeReframe = JSON.stringify(state.materials[refKey].sections);
+const reframed = await window.WB.views.material.reframeMaterial(refKey);
+check('按参考重排：AI 返回的栏目按参考顺序落地', reframed === true
+  && state.materials[refKey].sections.map((section) => section.heading).join('|') === '一、活动基本信息|二、活动内容与流程|（一）活动主题|六、经费预算',
+  state.materials[refKey].sections.map((section) => section.heading).join('|'));
+check('按参考重排：契约写明照抄栏目 / 字段 / 表格列，缺的写待确认、不许编造',
+  /不得增删或改名/.test(reframeRequest.contract) && /照抄/.test(reframeRequest.contract)
+  && /待确认/.test(reframeRequest.contract) && /不要照抄/.test(reframeRequest.contract));
+check('按参考重排：请求里带上现有正文、参考样例与输出栏目',
+  reframeRequest.input.现有正文.length === 3 && reframeRequest.input.参考样例.栏目.length === 4
+  && reframeRequest.input.输出栏目.join('|') === '一、活动基本信息|二、活动内容与流程|（一）活动主题|六、经费预算',
+  JSON.stringify({ 现有正文: reframeRequest.input.现有正文.length, 输出栏目: reframeRequest.input.输出栏目.length }));
+check('按参考重排：记下参考来源，并留一份撤回用的旧正文',
+  state.materials[refKey].reframedFrom === '学院申报表样表.docx' && state.materials[refKey].previous.sections.length === 3);
+window.WB.views.material.render();
+check('按参考重排：卡片上出现「版式 ✓」与「已重排」标记，并给出撤回入口',
+  document.querySelector('#materialList').innerHTML.includes('版式 ✓')
+  && document.querySelector('#materialList').innerHTML.includes('已重排')
+  && document.querySelector('#materialList').innerHTML.includes('data-material-reframe-undo'));
+store.setUser({ name: '只读同学', role: 'viewer' });
+const viewerReframe = await window.WB.views.material.reframeMaterial(refKey);
+check('按参考重排：只读访客被拦下，正文不变', viewerReframe === false && state.materials[refKey].reframedFrom === '学院申报表样表.docx');
+store.setUser({ name: '参考测试同学', role: 'organizer' });
+const undone = window.WB.views.material.undoReframe(refKey);
+check('撤回重排：正文回到重排前', undone === true
+  && JSON.stringify(state.materials[refKey].sections) === beforeReframe && !state.materials[refKey].reframedFrom);
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ providers: { deepseek: false, yoshub: false } }) });
+await window.WB.ai.check();
+check('参考件测试后恢复离线判定', window.WB.ai.ready === false);
+delete state.references[refKey];
+if (prevRefMaterial) state.materials[refKey] = prevRefMaterial; else delete state.materials[refKey];
+if (!hadRefOutput) delete state.project.outputs[refKey];
+if (refPrevUser) store.setUser(refPrevUser); else store.signOut();
+state.ui.openMaterial = null;
+window.WB.views.material.render();
+
+/* ── 13. 参考表填值（原表填充）：结构照抄，只换识别出来的值 ── */
+/* 读回压缩过的部件：readEntries 只解 STORE 条目，method 8 要自己解 */
+const inflatePart = async (zipBytes, name) => {
+  const item = DX.listEntries(zipBytes).find((entry) => entry.name === name);
+  if (!item) return '';
+  const raw = DX.entryBytes(zipBytes, item);
+  if (item.method === 0) return new TextDecoder().decode(raw);
+  const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new TextDecoder().decode(new Uint8Array(await new Response(stream).arrayBuffer()));
+};
+
+const FILL_XML = RAW_XML + '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+  + '<w:p><w:r><w:t>活动立项申报表</w:t></w:r></w:p>'
+  + '<w:p><w:r><w:t>活动名称：示例活动</w:t></w:r></w:p>'
+  + '<w:tbl>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>一、活动基本信息</w:t></w:r></w:p></w:tc></w:tr>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>活 动 地 点</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>旧地点</w:t></w:r></w:p></w:tc></w:tr>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>活动时间</w:t></w:r></w:p></w:tc><w:tc><w:p/></w:tc></w:tr>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>序号</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>物品名称</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>数量</w:t></w:r></w:p></w:tc></w:tr>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>横幅</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>2</w:t></w:r></w:p></w:tc></w:tr>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>二、活动内容</w:t></w:r></w:p></w:tc></w:tr>'
+  + '<w:tr><w:tc><w:p><w:r><w:t>（一）活动背景</w:t></w:r></w:p><w:p><w:r><w:t>去年写的内容</w:t></w:r></w:p>'
+  + '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>积分标准</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc></w:tr>'
+  + '</w:tbl>'
+  + '<w:p><w:r><w:t>附件1</w:t></w:r></w:p>'
+  + '</w:body></w:document>';
+
+const fillParsed = DX.fillSlots(FILL_XML);
+const fillPick = (label, kind) => fillParsed.slots.find((slot) => slot.label === label && (!kind || slot.kind === kind));
+check('原表填值：栏目仍按整行小标题识别', fillParsed.headings.join('|') === '一、活动基本信息|二、活动内容',
+  fillParsed.headings.join('|'));
+check('原表填值：段首「活动名称：值」拆成字段，值只取冒号之后',
+  fillPick('活动名称')?.kind === 'field' && fillPick('活动名称')?.now === '示例活动',
+  JSON.stringify(fillPick('活动名称')));
+check('原表填值：字段格里带空格的字段名也认得（活 动 地 点）',
+  fillPick('活 动 地 点')?.now === '旧地点' && fillPick('活 动 地 点')?.kind === 'field');
+check('原表填值：值是空的字段格给出插入位置', fillPick('活动时间')?.now === '' && Boolean(fillPick('活动时间')?.anchor),
+  JSON.stringify(fillPick('活动时间')?.anchor));
+check('原表填值：表头行不当空位，数据行按列名标注',
+  fillParsed.slots.every((slot) => !['序号', '物品名称', '数量'].includes(slot.now))
+  && fillParsed.slots.some((slot) => slot.label === '物品名称' && slot.now === '横幅'));
+check('原表填值：数据行里的纯序号不当值', !fillParsed.slots.some((slot) => slot.now === '1' && slot.kind === 'cell'));
+const fillPara = fillPick('（一）活动背景');
+check('原表填值：整格正文连同小标题算一个空位，小标题留在结构里',
+  fillPara?.kind === 'text' && fillPara?.now === '去年写的内容', JSON.stringify(fillPara));
+check('原表填值：值区间不碰格子里的子表（子表文字不算值）',
+  fillPara.ranges.every((range) => FILL_XML.slice(range.start, range.end) === '去年写的内容'),
+  JSON.stringify(fillPara.ranges.map((r) => FILL_XML.slice(r.start, r.end))));
+check('原表填值：封面文字也是空位（附件1 / 活动立项申报表）',
+  fillParsed.slots.some((slot) => slot.now === '附件1') && fillParsed.slots.some((slot) => slot.now === '活动立项申报表'));
+
+/* 起草值：项目信息表 → 参考表里的字段 */
+const fillDraft = DX.fillDraft(fillParsed, {
+  name: '2026 校园科技文化节', date: '2026-11-08', start: '09:30', end: '17:00', venue: '科创中心报告厅'
+});
+check('起草值：按字段名对上项目信息表（带空格与括注也能对）',
+  fillDraft.values[fillPick('活 动 地 点').id] === '科创中心报告厅'
+  && fillDraft.values[fillPick('活动名称', 'field').id] === '2026 校园科技文化节',
+  JSON.stringify(fillDraft));
+check('起草值：日期换成「年月日 + 时段」的写法',
+  fillDraft.values[fillPick('活动时间').id] === '2026年11月8日 09:30—17:00',
+  String(fillDraft.values[fillPick('活动时间').id]));
+check('起草值：没对上的一律留空（保留参考原文）',
+  fillDraft.values[fillPara.id] === undefined && fillDraft.matched === 3, String(fillDraft.matched));
+
+/* 填值：只动值，不动结构 */
+const fillEdit = {
+  [fillPick('活 动 地 点').id]: '新地点',
+  [fillPick('活动时间').id]: '2026年11月8日',
+  [fillPara.id]: '今年的活动内容',
+  [fillPick('物品名称').id]: '易拉宝'
+};
+const filledXml = DX.applyFill(FILL_XML, fillParsed, fillEdit);
+check('填值：旧值被换掉、新值写进去', !filledXml.includes('旧地点') && !filledXml.includes('去年写的内容')
+  && filledXml.includes('新地点') && filledXml.includes('今年的活动内容') && filledXml.includes('易拉宝'));
+check('填值：栏目 / 表头 / 子表 / 封面结构一字不动',
+  ['一、活动基本信息', '序号', '物品名称', '数量', '积分标准', '附件1', '（一）活动背景', '<w:tbl>']
+    .every((token) => filledXml.includes(token)));
+check('填值：空值格子插进新 run（连段落属性一起保留）',
+  filledXml.includes('<w:r><w:t xml:space="preserve">2026年11月8日</w:t></w:r>'));
+check('填值：XML 特殊字符被转义，不会破坏文档',
+  DX.applyFill(FILL_XML, fillParsed, { [fillPick('活动名称').id]: 'A&B<C>' }).includes('A&amp;B&lt;C&gt;'));
+check('填值：传空串表示这一格输出为空',
+  !DX.applyFill(FILL_XML, fillParsed, { [fillPick('活 动 地 点').id]: '' }).includes('旧地点'));
+check('填值：没给值的空位原样保留参考里的文字',
+  DX.applyFill(FILL_XML, fillParsed, { [fillPara.id]: '改过' }).includes('旧地点'));
+(() => {
+  const spans = [];
+  for (const slot of fillParsed.slots) {
+    if (!(slot.id in fillEdit)) continue;
+    const text = String(fillEdit[slot.id]).replace(/\s+/g, ' ').trim();
+    if (slot.ranges.length) {
+      spans.push({ start: slot.ranges[0].start, end: slot.ranges[0].end, text });
+      for (const range of slot.ranges.slice(1)) spans.push({ start: range.start, end: range.end, text: '' });
+    } else if (slot.anchor?.at != null) {
+      spans.push({ start: slot.anchor.at, end: slot.anchor.at, text: '<w:r><w:t xml:space="preserve">' + text + '</w:t></w:r>' });
+    } else if (slot.anchor?.replace) {
+      spans.push({
+        start: slot.anchor.replace.start,
+        end: slot.anchor.replace.end,
+        text: slot.anchor.replace.text + '<w:r><w:t xml:space="preserve">' + text + '</w:t></w:r></w:p>'
+      });
+    }
+  }
+  spans.sort((a, b) => a.start - b.start);
+  let cursor = 0;
+  let delta = 0;
+  let bad = 0;
+  for (const span of spans) {
+    if (FILL_XML.slice(cursor, span.start) !== filledXml.slice(cursor + delta, span.start + delta)) bad += 1;
+    delta += span.text.length - (span.end - span.start);
+    cursor = span.end;
+  }
+  if (FILL_XML.slice(cursor) !== filledXml.slice(cursor + delta)) bad += 1;
+  check('填值：除空位之外，正文逐字节与参考一致', bad === 0, `${bad} 段不一致`);
+})();
+
+/* 整包存档与重打包：字体清掉、其余部件逐字节照搬 */
+const fontFixture = window.WB.ooxml.zip([
+  { name: '[Content_Types].xml', data: RAW_XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscated-font"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/></Types>' },
+  { name: 'word/document.xml', data: RAW_XML + '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>活动名称</w:t></w:r></w:p></w:body></w:document>' },
+  { name: 'word/styles.xml', data: RAW_XML + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="a"><w:name w:val="Normal"/></w:style></w:styles>' },
+  { name: 'word/settings.xml', data: RAW_XML + '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:embedTrueTypeFonts/><w:zoom w:percent="100"/></w:settings>' },
+  { name: 'word/fontTable.xml', data: RAW_XML + '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:font w:name="宋体"><w:embedRegular r:id="rId1" w:fontKey="{AAA}"/></w:font></w:fonts>' },
+  { name: 'word/_rels/fontTable.xml.rels', data: RAW_XML + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" Target="fonts/font1.odttf"/></Relationships>' },
+  { name: 'word/fonts/font1.odttf', data: new Uint8Array(2048).fill(7) },
+  { name: 'word/media/logo.png', data: new Uint8Array([137, 80, 78, 71]) }
+]);
+const fontPkg = await DX.readPackage(fontFixture);
+check('整包存档：部件带回来压缩方式 / CRC / 原始大小', Boolean(fontPkg)
+  && fontPkg.entries.every((entry) => Number.isInteger(entry.crc) && entry.size >= 0 && entry.b64)
+  && fontPkg.entries.length === 7, `${fontPkg?.entries.length} 个部件`);
+check('整包存档：嵌入字体不进本地存档（省几百 KB）',
+  !fontPkg.entries.some((entry) => /fonts\//.test(entry.name))
+  && fontPkg.dropped.some((item) => /font1\.odttf/.test(item.name)),
+  JSON.stringify(fontPkg.dropped));
+const fontOut = await DX.fillPackage(fontPkg, RAW_XML + '<w:document><w:body><w:p><w:r><w:t>新内容</w:t></w:r></w:p></w:body></w:document>');
+const fontEntries = window.WB.ooxml.readEntries(fontOut);
+const fontText = (name) => new TextDecoder().decode((fontEntries.find((entry) => entry.name === name) || { data: new Uint8Array() }).data);
+check('重打包：正文换成填好的，其余部件照搬（图片字节一致）',
+  (await inflatePart(fontOut, 'word/document.xml')).includes('新内容')
+  && fontEntries.find((entry) => entry.name === 'word/media/logo.png').data.length === 4
+  && new TextDecoder().decode(fontEntries.find((entry) => entry.name === 'word/styles.xml').data).includes('Normal'));
+check('重打包：丢掉字体后，内容类型 / 关系 / 字体表 / 设置里的印记一并清掉',
+  !fontEntries.some((entry) => /fonts\//.test(entry.name))
+  && !fontText('[Content_Types].xml').includes('odttf')
+  && !fontText('word/_rels/fontTable.xml.rels').includes('font1.odttf')
+  && !fontText('word/fontTable.xml').includes('w:embedRegular')
+  && !fontText('word/settings.xml').includes('embedTrueTypeFonts'));
+check('重打包：条目 CRC 与解压后大小自洽（Word 能正常打开的关键）', (() => {
+  const list = DX.listEntries(fontOut);
+  return list.length === fontEntries.length && list.every((entry) => entry.method === 0 || entry.method === 8);
+})());
+const noDocPkg = await DX.readPackage(window.WB.ooxml.zip([{ name: 'a.txt', data: 'x' }]));
+check('整包存档：没有 document.xml 的包直接判为不可用', noDocPkg === null);
+
+/* 嵌套表格：最外层表格算一个块，里面的子表不当独立块 */
+const nestedRanges = DX.blockRanges(FILL_XML);
+const nestedTbl = nestedRanges.find((range) => range.tag === 'tbl');
+check('结构扫描：整张表算一个块（子表不会被非贪心正则截断）',
+  nestedRanges.filter((range) => range.tag === 'tbl').length === 1
+  && FILL_XML.slice(nestedTbl.start, nestedTbl.end).includes('积分标准')
+  && !nestedRanges.some((range) => range.tag === 'tbl' && range.start > nestedTbl.start),
+  JSON.stringify(nestedRanges.map((range) => range.tag)));
+
+/* 界面接线：上传参考时整包一起存、面板可渲染、只读访客改不动 */
+const fillPrevUser = state.user;
+const fillHadOutput = Boolean(state.project.outputs[refKey]);
+const fillPrevMaterial = state.materials[refKey];
+store.setUser({ name: '参考测试同学', role: 'organizer' });
+state.project.outputs[refKey] = true;
+state.fillDrafts = {};
+await window.WB.views.material.uploadReference(refKey, { name: '学院申报表样表.docx', arrayBuffer: async () => fontFixture.slice().buffer });
+const storedRef = state.references[refKey];
+check('上传参考：整包一起存档，可以按原表填值',
+  Boolean(storedRef?.package) && storedRef.package.entries.length === 7, JSON.stringify(storedRef?.package?.entries?.length));
+const viewFill = await window.WB.views.material.fillModel(refKey);
+check('参考表填值：解析出空位表，并从项目信息表推出默认值',
+  viewFill.model.slots.length > 0 && typeof viewFill.draft.values === 'object',
+  `${viewFill.model.slots.length} 个空位`);
+const fillPanelHtml = window.WB.views.material.fillPanel(refKey);
+check('参考表填值面板：空位输入框 / 置空开关 / 三个范围都在',
+  ['data-fill-panel', 'data-fill-input', 'data-fill-blank', '字段与段落', '仅字段', '全部空位']
+    .every((token) => fillPanelHtml.includes(token)));
+check('参考表填值面板：说明写清「留空 = 保留参考原文」', fillPanelHtml.includes('保留参考里的文字'));
+const fillSlot = viewFill.model.slots[0];
+window.WB.views.material.setFillValue(refKey, fillSlot.id, '手填的值');
+check('参考表填值：手改记在 fillDrafts 上（空的值会被删掉）',
+  state.fillDrafts[refKey][fillSlot.id] === '手填的值' && window.WB.views.material.fillValues(refKey, viewFill)[fillSlot.id] === '手填的值');
+window.WB.views.material.setFillValue(refKey, fillSlot.id, viewFill.draft.values[fillSlot.id] || '');
+check('参考表填值：改回默认值时不留手改痕迹', state.fillDrafts[refKey][fillSlot.id] === undefined);
+store.setUser({ name: '只读访客', role: 'viewer' });
+window.WB.views.material.setFillValue(refKey, fillSlot.id, '访客不该写进去');
+check('参考表填值：只读访客改不动填值表', state.fillDrafts[refKey][fillSlot.id] === undefined);
+store.setUser({ name: '参考测试同学', role: 'organizer' });
+let fillBlob = null;
+const realCreate = URL.createObjectURL;
+const realRevoke = URL.revokeObjectURL;
+URL.createObjectURL = (blob) => { fillBlob = blob; return 'blob:selftest'; };
+URL.revokeObjectURL = noop;
+const fillDownloaded = await window.WB.views.material.fillFromReference(refKey);
+URL.createObjectURL = realCreate;
+URL.revokeObjectURL = realRevoke;
+const fillOutBytes = fillBlob ? new Uint8Array(await fillBlob.arrayBuffer()) : new Uint8Array();
+const fillOutEntries = window.WB.ooxml.readEntries(fillOutBytes);
+check('参考表填值：导出走的是参考包本身（同一批部件、同一张表）',
+  fillDownloaded === true && fillOutEntries.length === 7
+  && fillOutEntries.some((entry) => entry.name === 'word/media/logo.png'));
+check('参考表填值：导出的正文里保留参考的结构文字',
+  (await inflatePart(fillOutBytes, 'word/document.xml')).includes('活动名称'));
+
+/* 挂了参考件之后，卡片上的 Word 默认导「参考原表」，AI 正文退成第二颗按钮 */
+const keepMaterialPhase = state.ui.materialPhase;
+const cardDocBackup = state.materials[refKey];
+state.materials[refKey] = cardDocBackup || {
+  title: '2026 校园科技文化节｜活动申报表',
+  sections: [{ heading: '一、活动基本信息', body: '| 字段 | 内容 |\n| --- | --- |\n| 活动名称 | 2026 校园科技文化节 |' }]
+};
+state.ui.materialPhase = 'all';
+window.WB.views.material.render();
+const refCardHtml = elementFor('materialList').innerHTML;
+state.ui.materialPhase = keepMaterialPhase;
+check('挂了参考件：卡片 Word 默认走「参考原表」',
+  refCardHtml.includes('data-material-fill-export=') && refCardHtml.includes('Word（参考原表）'));
+check('挂了参考件：AI 正文的 Word 退成第二颗按钮并标清用途',
+  refCardHtml.includes('Word（正文）') && refCardHtml.includes('material-export-hint'));
+check('挂了参考件：点「Word（参考原表）」走的就是参考包导出',
+  typeof window.WB.views.material.fillFromReference === 'function' && fillOutEntries.length === 7);
+
+/* 升级之前挂的参考只有栏目 / 字段 / 版式，没有整包快照，要提示重新上传 */
+const keepPkg = state.references[refKey].package;
+delete state.references[refKey].package;
+window.WB.views.material.render();
+const staleCardHtml = elementFor('materialList').innerHTML;
+check('旧参考（没整包快照）：卡片提示重传后可用「参考原表」，且不谎报可填值',
+  staleCardHtml.includes('重传参考可用') && !staleCardHtml.includes('data-material-fill-export'));
+state.references[refKey].package = keepPkg;
+
+/* ── AI 补空位：上下文与「生成正文」同源、数字格也发、一批 12 个、每个 id 都要回 ──
+   把基本信息清空 + 换掉参考 id 逼它重新建空位表，这样所有空位都是「待补」状态。 */
+const keepBasic = state.project.basic;
+const keepRefId = state.references[refKey].id;
+state.project.basic = {};
+state.references[refKey].id = 'ref-ai-fill-test';
+state.fillDrafts[refKey] = {};
+const prevFillFetch = globalThis.fetch;
+const fillCalls = [];
+globalThis.fetch = async (url, options) => {
+  const body = JSON.parse(options?.body || '{}');
+  if (String(url).includes('/api/health')) return { ok: true, json: async () => ({ providers: { deepseek: true, yoshub: false } }) };
+  if (String(url).includes('/api/material')) {
+    fillCalls.push(body.input);
+    return { ok: true, json: async () => ({ data: { values: (body.input.空位 || []).map((slot, index) => ({ id: slot.id, value: index % 2 ? '' : `AI-${slot.id}` })) } }) };
+  }
+  return { ok: true, json: async () => ({}) };
+};
+await window.WB.ai.check();
+const aiFilled = await window.WB.views.material.aiFillSlots(refKey);
+globalThis.fetch = prevFillFetch;
+await window.WB.ai.check();
+state.project.basic = keepBasic;
+state.references[refKey].id = keepRefId;
+const firstFillCall = fillCalls[0] || {};
+const aiSlots = (await window.WB.views.material.fillModel(refKey)).model.slots;
+const cellSlots = aiSlots.filter((slot) => slot.kind === 'cell').length;
+check('AI 补空位：确实发出去了请求，且一次最多 12 个空位',
+  fillCalls.length >= 1 && fillCalls.every((input) => input.空位.length > 0 && input.空位.length <= 12),
+  `${fillCalls.length} 批`);
+check('AI 补空位：表格数据格也发出去（不再整类跳过）',
+  cellSlots === 0 || fillCalls[0].空位.some((slot) => slot.类型), `cell 空位 ${cellSlots} 个`);
+check('AI 补空位：上下文与生成同源（基本信息 / 任务分解 / 风险台账 / 资源台账 / 参考样例）',
+  ['项目信息表', '任务分解', '风险台账', '资源台账', '参考样例'].every((key) => key in firstFillCall));
+check('AI 补空位：参考原文截到 3000 字，清单不会被 40k 输入上限挤掉',
+  String(firstFillCall.参考样例?.原文 || '').length <= 3000 && Array.isArray(firstFillCall.空位));
+check('AI 补空位：约束要求每个 id 都回一行、数字格不许编',
+  /每一个 id/.test(firstFillCall.约束 || '') && /数字格/.test(firstFillCall.约束 || ''));
+check('AI 补空位：值写进 fillDrafts，空串不回写',
+  aiFilled === true && Object.values(state.fillDrafts[refKey] || {}).filter((value) => value !== '').length > 0
+  && Object.values(state.fillDrafts[refKey] || {}).every((value) => value !== ''));
+check('AI 补空位：三种返回形状都能解析（数组 / values 数组 / id→value 映射）',
+  window.WB.views.material.normaliseFillRows({ values: [{ id: 'a', value: '甲' }] }, [{ id: 'a' }]).length === 1
+  && window.WB.views.material.normaliseFillRows({ values: { a: '甲' } }, [{ id: 'a' }])[0].value === '甲'
+  && window.WB.views.material.normaliseFillRows([{ id: 'a', value: { value: '甲' } }], [{ id: 'a' }])[0].value === '甲'
+  && window.WB.views.material.normaliseFillRows({ values: [{ id: 'zz', value: '甲' }] }, [{ id: 'a' }]).length === 0);
+
+if (cardDocBackup) state.materials[refKey] = cardDocBackup; else delete state.materials[refKey];
+delete state.references[refKey];
+if (fillPrevMaterial) state.materials[refKey] = fillPrevMaterial; else delete state.materials[refKey];
+if (!fillHadOutput) delete state.project.outputs[refKey];
+state.fillDrafts = {};
+if (fillPrevUser) store.setUser(fillPrevUser); else store.signOut();
+
+/* ── 14. 表格容错：表头写短了 / 漏写表头，都不许丢列 ── */
+const MDL = window.WB.markdown;
+const shortHead = MDL.parseBlocks('| 阶段 |\n| --- | --- | --- |\n| 前期策划 | 编制预算表 | 策划组 |')[0];
+check('表格容错：表头比数据短时补到最宽行的列数（后面的格子不再被裁掉）',
+  shortHead.type === 'table' && shortHead.header.length === 3 && shortHead.rows[0].join('|') === '前期策划|编制预算表|策划组',
+  JSON.stringify({ header: shortHead.header, rows: shortHead.rows }));
+const blankHead = MDL.parseBlocks('|  |  |\n| --- | --- |\n| 甲 | 乙 |')[0];
+check('表格容错：空表头同样按最宽行补齐，数据一行不丢',
+  blankHead.type === 'table' && blankHead.header.length === 2 && blankHead.rows[0].join('|') === '甲|乙');
+const noHead = MDL.parseBlocks('| --- | --- |\n| 前期策划 | 编制预算表 |\n| 活动筹备 | 设计海报 |')[0];
+check('表格容错：漏写表头的表也能认出来（不再退化成一堆竖线文本）',
+  noHead.type === 'table' && noHead.header.every((cell) => cell === '') && noHead.rows.length === 2 && noHead.rows[0].join('|') === '前期策划|编制预算表');
+const noHeadXml = new TextDecoder('utf-8').decode(window.WB.ooxml.readEntries(
+  window.WB.ooxml.docx({ title: 't', blocks: [noHead], style: null })).find((entry) => entry.name === 'word/document.xml').data);
+check('表格容错：无表头表格在 Word 里不画空表头行', (noHeadXml.match(/<w:tr>/g) || []).length === 2 && (noHeadXml.match(/<w:tc>/g) || []).length === 4);
+check('表格容错：无表头表格在预览里也不画空表头行', !MDL.toHtml('| --- | --- |\\n| 前期策划 | 编制预算表 |').includes('<thead>'));
+const looseText = MDL.parseBlocks('| --- | --- |\n| 前期策划 | 编制预算表 |').filter((block) => block.type === 'paragraph').length;
+check('表格容错：无表头表格不再落成段落文本', looseText === 0);
+const wordShort = window.WB.ooxml.docx({ title: 't', blocks: [{ type: 'table', header: ['阶段'], rows: [['a', 'b', 'c']] }], style: null });
+const wordShortXml = new TextDecoder('utf-8').decode(window.WB.ooxml.readEntries(wordShort).find((entry) => entry.name === 'word/document.xml').data);
+check('Word 导出：表格格数按最宽行算，表头短也不吞列',
+  (wordShortXml.match(/<w:tc>/g) || []).length === 6, String((wordShortXml.match(/<w:tc>/g) || []).length));
+const wordEmptyHead = window.WB.ooxml.docx({ title: 't', blocks: [{ type: 'table', header: [], rows: [['a', 'b']] }], style: null });
+const wordEmptyXml = new TextDecoder('utf-8').decode(window.WB.ooxml.readEntries(wordEmptyHead).find((entry) => entry.name === 'word/document.xml').data);
+check('Word 导出：空表头不再生成没有格子的空行，也不多挂一排空格子',
+  (wordEmptyXml.match(/<w:tc>/g) || []).length === 2 && (wordEmptyXml.match(/<w:tr>/g) || []).length === 1 && !/<w:tr><\/w:tr>/.test(wordEmptyXml));
+
 console.log(`\n结构化活动工作台 · 离线自测`);
 console.log(`模块 ${MODULES.length} 个 · 断言 ${checks} 项 · 失败 ${failures.length} 项`);
 if (failures.length) {

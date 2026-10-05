@@ -55,7 +55,7 @@ window.WB = window.WB || {};
       else el.title = ROLE_HINT;
     }
     if (canWrite) return;
-    for (const id of ['aiFillManifest', 'generateMaterials']) {
+    for (const id of ['aiFillManifest', 'generateMaterials', 'interviewStart']) {
       const el = document.getElementById(id);
       if (el) { el.disabled = true; el.title = ROLE_HINT; }
     }

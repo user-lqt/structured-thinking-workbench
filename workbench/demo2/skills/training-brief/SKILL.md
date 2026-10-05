@@ -3,6 +3,7 @@ name: training-brief
 title: 志愿者培训提纲
 kind: document
 phase: prepare
+deliverable: word
 description: 给志愿者与工作人员做岗前培训的提纲，覆盖活动概况、岗位话术与应急处理。
 ---
 
@@ -50,3 +51,10 @@ description: 给志愿者与工作人员做岗前培训的提纲，覆盖活动�
 - [ ] 含四类可直接朗读的话术
 - [ ] 应急要点为分步动作，且上报路径与风险台账一致
 - [ ] 未编造人名与电话
+
+## 交付格式
+
+- **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
+- **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
+- **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
+- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。

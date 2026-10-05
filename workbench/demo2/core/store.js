@@ -18,7 +18,7 @@ window.WB = window.WB || {};
 
   /* 这些键属于「单个项目」，按项目分文件存储；其余属于全局索引。 */
   const DOC_KEYS = ['project', 'wbs', 'risks', 'riskCompliance', 'options', 'gates', 'gateMeta',
-    'materials', 'templates', 'materialTemplates', 'assets', 'poster', 'resources', 'drills', 'log'];
+    'materials', 'templates', 'materialTemplates', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills', 'log'];
 
   const nowIso = () => new Date().toISOString();
 
@@ -39,6 +39,12 @@ window.WB = window.WB || {};
       materials: {},
       templates: [],
       materialTemplates: {},
+      /* 每份材料可挂一份参考件（往届样表）：{ name, kind, sections, fields, text, kit }
+         kit 是版式套件（样式表 / 页面设置 / 页眉页脚），导出 Word 时照它排版 */
+
+      references: {},
+      /* 参考表填值：每份材料每个空位的覆盖值（{ 空位 id: 文字 }；空串=输出为空，缺省=保留参考原文） */
+      fillDrafts: {},
       assets: [],
       poster: {},
       resources: [],
@@ -159,6 +165,8 @@ window.WB = window.WB || {};
     doc.materials = raw.materials || {};
     doc.templates = raw.templates || [];
     doc.materialTemplates = raw.materialTemplates || {};
+    doc.references = raw.references && typeof raw.references === 'object' ? raw.references : {};
+    doc.fillDrafts = raw.fillDrafts && typeof raw.fillDrafts === 'object' ? raw.fillDrafts : {};
     doc.options = { ...freshProjectDoc().options, ...(raw.options || {}) };
     doc.assets = raw.assets || [];
     doc.poster = raw.poster && typeof raw.poster === 'object' ? raw.poster : {};

@@ -3,6 +3,7 @@ name: shift-table
 title: 排班表
 kind: table
 phase: prepare
+deliverable: excel
 description: 把岗位与时段排成可执行的班次表，明确交接要求与替补机制。
 ---
 
@@ -49,3 +50,10 @@ description: 把岗位与时段排成可执行的班次表，明确交接要求�
 - [ ] 覆盖布置期、活动期、撤场期
 - [ ] 关键岗位均有替补说明
 - [ ] 未出现具体人名
+
+## 交付格式
+
+- **主交付**：Excel 工作簿（`.xlsx`）。每个章节一张工作表，表格首行为表头并冻结；纯正文章节按行铺开。
+- **备选**：Word（`.docx`）与 Markdown（`.md`），内容与工作簿一致。
+- **导出入口**：「过程材料」卡片上的 `Excel` / `Word` / `Markdown` 按钮（`Excel` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToXlsx(doc)` / `materialToDocx(doc)`。
+- **写作要求**：每章用 Markdown 管道表格（表头行 + `| --- |` 分隔行 + 数据行），一张表只表达一件事；单元格内不要换行或嵌套列表——导出时按行、按列读取。

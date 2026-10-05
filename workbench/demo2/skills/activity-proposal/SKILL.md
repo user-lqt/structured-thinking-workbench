@@ -3,6 +3,7 @@ name: activity-proposal
 title: 活动策划书
 kind: document
 phase: plan
+deliverable: word
 description: 生成校园活动策划书、活动方案、策划方案正文。当需要把项目信息表扩展成完整的策划文档，或要产出可提交的活动方案时使用。
 ---
 
@@ -109,3 +110,10 @@ description: 生成校园活动策划书、活动方案、策划方案正文。�
 - [ ] 目标可核验，不是口号
 - [ ] 未编造人名、单位、链接、金额
 - [ ] 缺失信息已标 `待确认`
+
+## 交付格式
+
+- **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
+- **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
+- **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
+- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。

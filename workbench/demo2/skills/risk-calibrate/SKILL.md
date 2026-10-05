@@ -3,6 +3,7 @@ name: risk-calibrate
 title: 风险评分校准
 kind: structure
 phase: prepare
+deliverable: none
 description: 对已识别的风险清单重新评分，修正分值过于集中在中档的问题，使分布落入目标区间。
 ---
 
@@ -81,3 +82,8 @@ description: 对已识别的风险清单重新评分，修正分值过于集中�
 - [ ] `scores` 的数量与输入一致，`index` 连续
 - [ ] 分值分布落在目标区间
 - [ ] 没有增删或改名
+
+## 交付格式
+
+- 本技能不直接产出可下载交付物，结果回写到工作台的结构化数据里。
+- 需要带走时，使用所在视图的导出按钮（Markdown / 表格导出）。

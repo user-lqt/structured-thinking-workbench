@@ -3,6 +3,7 @@ name: attendance
 title: 签到表
 kind: table
 phase: execute
+deliverable: excel
 description: 生成可直接打印或导表的签到表，并给出统计口径与汇总方式。
 ---
 
@@ -48,3 +49,10 @@ description: 生成可直接打印或导表的签到表，并给出统计口径�
 - [ ] 观众表与工作人员表分开
 - [ ] 含统计口径与汇总表
 - [ ] 未编造姓名与联系方式
+
+## 交付格式
+
+- **主交付**：Excel 工作簿（`.xlsx`）。每个章节一张工作表，表格首行为表头并冻结；纯正文章节按行铺开。
+- **备选**：Word（`.docx`）与 Markdown（`.md`），内容与工作簿一致。
+- **导出入口**：「过程材料」卡片上的 `Excel` / `Word` / `Markdown` 按钮（`Excel` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToXlsx(doc)` / `materialToDocx(doc)`。
+- **写作要求**：每章用 Markdown 管道表格（表头行 + `| --- |` 分隔行 + 数据行），一张表只表达一件事；单元格内不要换行或嵌套列表——导出时按行、按列读取。

@@ -3,6 +3,7 @@ name: invitation
 title: 邀请函 / 通知稿
 kind: document
 phase: prepare
+deliverable: word
 description: 生成正式邀请函、校内通知稿与回执跟进安排，兼顾礼节与执行落地。
 ---
 
@@ -48,3 +49,10 @@ description: 生成正式邀请函、校内通知稿与回执跟进安排，兼�
 - [ ] 邀请函为正式成段文体，含落款
 - [ ] 接待安排含时间、位置与引导角色
 - [ ] 未编造人名、职务与联系方式
+
+## 交付格式
+
+- **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
+- **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
+- **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
+- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。

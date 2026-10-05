@@ -3,6 +3,7 @@ name: resource-plan
 title: 人员与资源台账
 kind: structure
 phase: prepare
+deliverable: markdown
 description: 从项目信息、任务分解与场地方案中提炼人员、场地、设备、物料、经费与车辆台账。
 ---
 
@@ -69,3 +70,8 @@ description: 从项目信息、任务分解与场地方案中提炼人员、场�
 - [ ] 每条 kind 与 unit 匹配
 - [ ] 未与已有资源重名
 - [ ] 数量与项目规模逻辑一致
+
+## 交付格式
+
+- **主交付**：结构化表格导出（Markdown / CSV），由所在视图的导出按钮生成。
+- **说明**：本技能维护的是工作台内的结构化数据，不产出可下载的文档；需要 Word / Excel 时，请到「过程材料」导出对应材料。

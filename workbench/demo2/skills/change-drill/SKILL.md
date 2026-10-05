@@ -3,6 +3,7 @@ name: change-drill
 title: 突发变更演练处置
 kind: structure
 phase: execute
+deliverable: none
 description: 针对指定风险场景，生成本次活动可执行的处置步骤、决策记录与回退条件。
 ---
 
@@ -64,3 +65,8 @@ description: 针对指定风险场景，生成本次活动可执行的处置步�
 - [ ] rollback 含量化条件与确认人
 - [ ] risk 字段可直接写入风险台账
 - [ ] 未编造电话、外部资源与不存在的人员
+
+## 交付格式
+
+- 本技能不直接产出可下载交付物，结果回写到工作台的结构化数据里。
+- 需要带走时，使用所在视图的导出按钮（Markdown / 表格导出）。

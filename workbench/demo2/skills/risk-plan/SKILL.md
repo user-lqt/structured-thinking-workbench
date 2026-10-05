@@ -3,6 +3,7 @@ name: risk-plan
 title: 风险应急预案
 kind: document
 phase: prepare
+deliverable: word
 description: 把风险台账整理成可执行的分级应急预案文档，含联络方式与资源保障。
 ---
 
@@ -50,3 +51,10 @@ description: 把风险台账整理成可执行的分级应急预案文档，含�
 - [ ] 风险清单与台账逐项对应
 - [ ] 响应流程为分步动作，含责任人与时限
 - [ ] 未编造电话与外部资源
+
+## 交付格式
+
+- **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
+- **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
+- **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
+- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。
