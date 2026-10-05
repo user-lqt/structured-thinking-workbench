@@ -1426,6 +1426,123 @@ tr.is-blocked > td { background: #fef7f6; }
   .fill-now { white-space: normal; }
 }
 
+/* ── 填写路线图（总览顶部）与顶栏引导按钮 ───────────────── */
+
+.guide-chip {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+.guide-chip:hover { background: #dceeea; color: var(--accent); }
+.guide-chip > b { font-weight: 700; }
+.guide-chip.is-done { color: var(--text-soft); background: var(--surface); border-color: var(--line-strong); }
+@media (max-width: 900px) { .guide-chip { display: none; } }
+
+.guide-top { display: flex; align-items: center; gap: 14px; padding: 14px 18px 2px; flex-wrap: wrap; }
+.guide-progress { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 180px; font-size: 12.5px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.guide-progress .bar { flex: 1; min-width: 90px; }
+.guide-all-done { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.guide-steps { list-style: none; margin: 0; padding: 12px 18px 16px; display: grid; gap: 6px; }
+.guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) ease, background var(--dur-quick) ease, transform var(--dur-press) var(--ease-out);
+}
+.guide-step:hover { border-color: var(--accent); background: #f7fdfb; }
+.guide-step:active { transform: scale(0.995); }
+.guide-step .guide-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #eef2f1;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.guide-step .guide-body { flex: 1; min-width: 0; }
+.guide-step .guide-body b { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.guide-step .guide-body small { font-size: 11.5px; color: var(--text-faint); }
+.guide-step .guide-go { flex: none; align-self: center; font-size: 12px; font-weight: 600; color: var(--text-faint); white-space: nowrap; }
+.guide-step.is-todo .guide-go { color: var(--accent); }
+.guide-step.is-done { background: #fbfdfc; }
+.guide-step.is-done .guide-num { background: var(--accent-soft); color: var(--accent); }
+.guide-step.is-done .guide-body b { color: var(--text-soft); }
+.guide-step.is-current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.guide-step.is-current .guide-num { background: var(--accent); color: #fff; }
+.guide-tag { margin-left: 6px; padding: 0 5px; border-radius: 5px; font-style: normal; font-size: 10.5px; font-weight: 700; background: #eef2f1; color: var(--text-faint); }
+.guide-tag.is-now { background: var(--accent-soft); color: var(--accent); }
+
+/* ── 填值面板的「逐格填空」 ─────────────────────────────── */
+
+.fill-step { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 12px 14px 14px; }
+.fill-step-head { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.fill-step-where { margin-left: auto; font-weight: 600; color: var(--text-soft); }
+.fill-step-name { display: flex; align-items: center; gap: 6px; margin: 10px 0 6px; font-size: 13px; font-weight: 650; color: var(--text); }
+.fill-step-name i { font-style: normal; font-weight: 500; color: var(--text-faint); }
+.fill-step-input { font-size: 13.5px; padding: 8px 10px; }
+.fill-step-meta { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.fill-step-meta .fill-now { white-space: normal; }
+.fill-basis { font-size: 11.5px; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 0 6px; }
+.fill-step-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.fill-step-flag { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--amber); background: var(--amber-soft); border-radius: 4px; padding: 0 5px; }
+
+/* 参与者信息收集（可选能力）：字段设计器 / 二维码卡 / 实时汇总 / 记录表 */
+.signup-hero { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.signup-hero-main { flex: 1 1 320px; }
+.signup-hero-main h3 { font-size: 16px; margin: 2px 0 6px; }
+.signup-hero-side { display: flex; gap: 8px; align-items: center; }
+.signup-sub { color: var(--text-soft); font-size: 13.5px; margin: 0 0 6px; line-height: 1.65; }
+.signup-hint { color: var(--text-faint); font-size: 12px; margin: 6px 0 0; line-height: 1.6; }
+.signup-hint code, .signup-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.signup-label { display: grid; gap: 6px; font-size: 12.5px; color: var(--text-soft); font-weight: 600; }
+.signup-label input { font: inherit; font-weight: 400; padding: 9px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); }
+.signup-label input:focus { outline: none; border-color: var(--accent); }
+.signup-presets { margin: 4px 0 2px; }
+.signup-grid { display: grid; grid-template-columns: minmax(260px, 320px) minmax(280px, 1fr); gap: 18px; align-items: start; }
+.signup-channel { display: grid; gap: 8px; align-content: start; }
+.signup-qr { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.signup-qr svg { width: 100%; max-width: 240px; height: auto; display: block; }
+.signup-qr.is-over { background: var(--amber-soft); border-color: #f0d9ae; color: var(--amber); text-align: left; align-items: stretch; }
+.signup-qr.is-over b { font-size: 13px; }
+.signup-code { width: 100%; margin-top: 8px; padding: 9px 10px; border: 1px dashed var(--line-strong); border-radius: 10px; background: #f8faf9; color: var(--text-soft); font-size: 12px; line-height: 1.6; resize: vertical; word-break: break-all; }
+.signup-table-wrap { margin-top: 10px; overflow-x: auto; }
+.signup-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.signup-table th, .signup-table td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: middle; }
+.signup-table th { color: var(--text-faint); font-weight: 600; font-size: 11.5px; white-space: nowrap; }
+.signup-table input, .signup-table select { font: inherit; width: 100%; min-width: 72px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
+.signup-table input[type=checkbox] { width: 15px; min-width: 0; height: 15px; }
+.signup-table input:focus, .signup-table select:focus { outline: none; border-color: var(--accent); }
+.signup-table .col-idx, .signup-table .col-req, .signup-table .col-key, .signup-table .col-act, .signup-table .col-checkin { width: 1%; white-space: nowrap; }
+.signup-table .col-time { white-space: nowrap; color: var(--text-soft); }
+.signup-records td { max-width: 220px; }
+.signup-records tr.is-dupe { background: var(--amber-soft); }
+.signup-cell { min-width: 84px; }
+.signup-table button.chip { border: 1px solid var(--line); background: #eef1f0; cursor: pointer; }
+.signup-table button.chip:hover { border-color: var(--accent); color: var(--accent); }
+.signup-preview-wrap { margin-top: 14px; }
+.signup-preview { width: 100%; max-width: 420px; height: 620px; border: 1px solid var(--line); border-radius: 14px; background: #fff; display: block; margin: 0 auto; box-shadow: var(--shadow); }
+.signup-import { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+.signup-import h4 { font-size: 13px; margin: 0 0 6px; }
+@media (max-width: 900px) { .signup-grid { grid-template-columns: 1fr; } }
+
 /* 拖拽上传：文件悬停在材料卡片上时的落点提示 */
 .material-card.is-drop { border-color: var(--accent); background: var(--accent-soft); }
 .material-card.is-drop .material-head::after {

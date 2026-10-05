@@ -1,8 +1,9 @@
 import http from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
@@ -34,6 +35,44 @@ if (existsSync(envFile)) {
 
 const port = Number(process.env.DEMO2_PORT || 4175);
 
+/* 默认只听回环：只有本机能访问，别的设备连不上。
+   要手机扫码填写时，用 DEMO2_HOST=0.0.0.0 启动——这时「非本机」的请求
+   只能读下面这三个文件（填写页与它加载的两个脚本），工作台页面、AI 接口、
+   generated/ 图片一律拒绝；数据也只会写进手机自己的浏览器本地，
+   回传靠填写页给出的回执码 / 导出的 CSV（没有上传接口）。 */
+const host = String(process.env.DEMO2_HOST || '127.0.0.1').trim() || '127.0.0.1';
+/* 非本机（局域网 / cloudflared 隧道 / 反向代理）能碰到的路径，只有填写页这一小块：
+   读：填写页 + 它加载的两个脚本 + 按短码取表单；写：提交一条回执码。
+   工作台页面、/api/structure（AI Key 在这里）、/api/image、/generated/ 都不在名单里。 */
+const REMOTE_GET = new Set(['/signup.html', '/core/qr.js', '/core/signup.js', '/api/signup/form']);
+const REMOTE_POST = new Set(['/api/signup/submit']);
+
+/* 手机直传的落盘位置：generated/join/（运行期生成，不进仓库、不进打包产物） */
+const JOIN_DIR = path.join(here, 'generated', 'join');
+const JOIN_INDEX = path.join(JOIN_DIR, 'projects.json');
+const JOIN_BODY_LIMIT = 8_192;
+const JOIN_RECEIPT_LIMIT = 1_500;
+const JOIN_SCHEMA_LIMIT = 3_000;
+const JOIN_MAX_RECORDS = 800;
+const JOIN_MAX_PER_MINUTE = 40;
+
+const isLoopback = (address) => {
+  const value = String(address || '');
+  return value === '127.0.0.1' || value === '::1' || value === '::ffff:127.0.0.1';
+};
+
+/* 列出局域网地址时带上网卡名：虚拟网卡（VMware / Hyper-V / VirtualBox）也在里面，
+   手机连不到它们，得让使用者自己认准 Wi-Fi 或以太网那张。 */
+function lanAddresses() {
+  const out = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    for (const item of list || []) {
+      if (item.family === 'IPv4' && !item.internal) out.push({ name, address: item.address });
+    }
+  }
+  return out;
+}
+
 function send(res, status, data, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   // Buffer / 字符串按原样输出；只有普通对象才序列化为 JSON。
@@ -57,7 +96,7 @@ async function readBuffer(req, limit = 12_000_000) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw Object.assign(new Error('文件过大，上限 12 MB'), { status: 413 });
+    if (size > limit) throw Object.assign(new Error(`请求体过大（上限 ${Math.round(limit / 1024)} KB）`), { status: 413 });
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -374,9 +413,148 @@ async function handleImage(req, res) {
   return send(res, 200, { url: `/generated/${filename}`, model: item.model || model, ...imageDimensions(bytes) });
 }
 
+/* ── 手机直传的存取（课堂演示够用的最小实现） ──
+   projects.json 记「4 位短码 → 项目号 + 表单定义」；队列按项目一个 .jsonl，
+   每行一条回执码——和工作台里粘贴回执码走同一套解析，所以天然幂等。 */
+function joinIndex() {
+  try { return JSON.parse(readFileSync(JOIN_INDEX, 'utf8')) || {}; } catch { return {}; }
+}
+
+function joinSaveIndex(table) {
+  mkdirSync(JOIN_DIR, { recursive: true });
+  writeFileSync(JOIN_INDEX, JSON.stringify(table));
+}
+
+function joinKey(projectId) {
+  return String(projectId || '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64) || 'default';
+}
+
+function joinQueueFile(projectId) {
+  return path.join(JOIN_DIR, `${joinKey(projectId)}.jsonl`);
+}
+
+function joinLines(projectId) {
+  try {
+    return readFileSync(joinQueueFile(projectId), 'utf8').split('\n').map((line) => line.trim()).filter(Boolean);
+  } catch { return []; }
+}
+
+/* 短码 → 项目号；没登记过的按项目号本身处理（工作台直接提交时用得上） */
+function joinResolve(value) {
+  const key = String(value || '').trim();
+  if (!key || key.length > 64 || !/^[A-Za-z0-9._-]+$/.test(key)) return null;
+  const row = joinIndex()[key];
+  return row ? { projectId: String(row.projectId || key), code: key } : { projectId: key, code: '' };
+}
+
+function joinMintCode(table) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const code = Math.random().toString(36).slice(2, 6);
+    if (/^[a-z0-9]{4}$/.test(code) && !table[code]) return code;
+  }
+  return `s${Date.now().toString(36).slice(-4)}`;
+}
+
+/* 限流：同一来源一分钟内最多提交 JOIN_MAX_PER_MINUTE 条（内存里数着就够） */
+const submitLog = new Map();
+function submitAllowed(ip) {
+  const now = Date.now();
+  const list = (submitLog.get(ip) || []).filter((at) => now - at < 60_000);
+  if (list.length >= JOIN_MAX_PER_MINUTE) { submitLog.set(ip, list); return false; }
+  list.push(now);
+  submitLog.set(ip, list);
+  if (submitLog.size > 400) submitLog.clear();
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://127.0.0.1');
+    /* 隧道（cloudflared）与反向代理会补上这几个头：请求虽然是 127.0.0.1 发来的，
+       真正的访客却在公网——必须当成「非本机」处理，否则工作台页面和 AI 接口
+       （里面是你的 API Key）会被隧道一起暴露出去。 */
+    const forwarded = String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || '').split(',')[0].trim();
+    const remote = Boolean(forwarded) || !isLoopback(req.socket?.remoteAddress);
+    const clientIp = forwarded || String(req.socket?.remoteAddress || '');
+    if (remote) {
+      const allowed = req.method === 'GET' || req.method === 'HEAD'
+        ? REMOTE_GET.has(url.pathname)
+        : REMOTE_POST.has(url.pathname);
+      if (!allowed) {
+        return send(res, 403, { error: '本机工作台不对外开放：公网 / 局域网只能打开参与者填写页并提交，工作台与 AI 接口仍只允许本机访问。' });
+      }
+    }
+
+    /* ── 参与者直传 ①：登记短码（只允许本机）──────
+       短码只有 4 位，二维码里只带短码；表单定义存在这里，手机按码来取。 */
+    if (url.pathname === '/api/signup/link') {
+      if (req.method !== 'POST') return send(res, 405, { error: '仅支持 POST 请求' });
+      const body = await readJson(req);
+      const projectId = String(body.projectId || '');
+      const schema = String(body.schema || '');
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(projectId)) return send(res, 400, { error: '项目号不合法。' });
+      if (!schema || schema.length > JOIN_SCHEMA_LIMIT) return send(res, 400, { error: '表单定义缺失或过长。' });
+      const table = joinIndex();
+      const code = Object.keys(table).find((key) => table[key].projectId === projectId);
+      if (!code) {
+        const fresh = joinMintCode(table);
+        table[fresh] = { projectId, schema, at: Date.now() };
+        joinSaveIndex(table);
+        return send(res, 200, { ok: true, code: fresh, projectId, bytes: schema.length });
+      }
+      if (table[code].schema !== schema) {
+        table[code] = { ...table[code], schema, at: Date.now() };
+        joinSaveIndex(table);
+        return send(res, 200, { ok: true, code, projectId, updated: true, bytes: schema.length });
+      }
+      return send(res, 200, { ok: true, code, projectId, reused: true, bytes: schema.length });
+    }
+
+    /* ② 手机按短码取表单定义（公网可访问） */
+    if (url.pathname === '/api/signup/form') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: '仅支持 GET 请求' });
+      const code = String(url.searchParams.get('p') || '').trim();
+      const row = joinIndex()[code];
+      if (!row) return send(res, 404, { error: '这个短码没有登记：请让组织者重新生成二维码（服务重启或换了项目会换码）。' });
+      return send(res, 200, { ok: true, code, projectId: row.projectId, d: row.schema });
+    }
+
+    /* ③ 手机提交：一条回执码进来就落盘（公网可访问，带限流与总量上限） */
+    if (url.pathname === '/api/signup/submit') {
+      if (req.method !== 'POST') return send(res, 405, { error: '仅支持 POST 请求' });
+      if (!submitAllowed(clientIp)) return send(res, 429, { error: '提交太频繁，请过一分钟再试。' });
+      const buffer = await readBuffer(req, JOIN_BODY_LIMIT);
+      let body = null;
+      try { body = JSON.parse(buffer.toString('utf8') || '{}'); }
+      catch { return send(res, 400, { error: '提交内容不是 JSON。' }); }
+      const receipt = String(body?.receipt || '').trim();
+      if (!receipt.startsWith('R1|') || receipt.length > JOIN_RECEIPT_LIMIT) return send(res, 400, { error: '回执码格式不对。' });
+      const entry = joinResolve(body?.p);
+      if (!entry) return send(res, 400, { error: '短码无效：请重新扫码。' });
+      /* 页面不知道自己是哪个项目时（老式链接 / 过期短码）会发 default：直接拒绝，
+         免得记录落进工作台永远拉不到的桶里——让填写页退回回执码更靠谱 */
+      if (entry.projectId === 'default') {
+        console.log('⚠ 收到一条没有项目号的提交，已拒绝（让填写页改用回执码，或重新生成二维码）');
+        return send(res, 400, { error: '这条提交没带项目号：请让组织者重新生成二维码，或把回执码发给他。' });
+      }
+      const lines = joinLines(entry.projectId);
+      if (lines.length >= JOIN_MAX_RECORDS) return send(res, 429, { error: `该项目已收满 ${JOIN_MAX_RECORDS} 条：请让组织者改用回执码 / CSV 导入。` });
+      const known = lines.includes(receipt);
+      if (!known) {
+        mkdirSync(JOIN_DIR, { recursive: true });
+        appendFileSync(joinQueueFile(entry.projectId), `${receipt}\n`);
+      }
+      return send(res, 200, { ok: true, project: entry.projectId, total: lines.length + (known ? 0 : 1), duplicate: known });
+    }
+
+    /* ④ 工作台拉增量（只允许本机） */
+    if (url.pathname === '/api/signup/queue') {
+      if (req.method !== 'GET') return send(res, 405, { error: '仅支持 GET 请求' });
+      const projectId = String(url.searchParams.get('project') || '');
+      const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
+      const lines = joinLines(projectId);
+      return send(res, 200, { ok: true, project: joinKey(projectId), total: lines.length, since, records: lines.slice(since, since + 200) });
+    }
     if (url.pathname === '/api/health') {
       return send(res, 200, {
         ok: true,
@@ -414,4 +592,23 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => console.log(`Demo2 listening at http://127.0.0.1:${port}/`));
+server.listen(port, host, () => {
+  console.log(`Demo2 listening at http://127.0.0.1:${port}/`);
+  const lan = lanAddresses().map((item) => `http://${item.address}:${port}/signup.html  (${item.name})`);
+  if (isLoopback(host)) {
+    console.log('模式：仅本机（默认，别的设备连不上）。');
+    console.log('手机扫码填写 · 公网（推荐 cloudflared 隧道，另开一个窗口跑）：');
+    console.log(`  cloudflared tunnel --url http://127.0.0.1:${port}`);
+    console.log('  把打印出来的 https://xxx.trycloudflare.com 填进「参与者 → 访问地址」，再点「重新生成二维码」。');
+    console.log('  隧道只放行填写页、取表单、提交三条路；工作台与 AI 接口仍然只允许本机。地址是公开的，演示完 Ctrl+C 关掉。');
+    console.log('手机扫码填写 · 局域网：用 DEMO2_HOST=0.0.0.0 重启（做法见 README「扫码填写怎么开」），例如：');
+    console.log("  PowerShell:  $env:DEMO2_HOST='0.0.0.0'; node workbench/demo2/server.mjs");
+    if (lan.length) for (const line of lan) console.log(`  届时填写页地址：${line}`);
+    else console.log('  未检测到局域网地址：请先连上 Wi-Fi / 手机热点。');
+    return;
+  }
+  console.log(`⚠ 已对局域网开放（${host}）：非本机只能读 /signup.html 与 core/qr.js、core/signup.js，工作台与 AI 接口仍只允许本机访问。`);
+  if (lan.length) for (const line of lan) console.log(`手机扫码填写页：${line}`);
+  else console.log('未检测到局域网地址：请先连上 Wi-Fi / 热点。');
+  console.log('用完请 Ctrl+C 停掉，并删除防火墙放行规则（README「扫码填写怎么开」里有命令）。');
+});

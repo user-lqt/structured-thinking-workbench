@@ -297,6 +297,31 @@
       "source": "user"
     }
   ],
+  "signup": {
+    "enabled": true,
+    "title": "科技文化节现场登记",
+    "note": "现场扫码填写，用于领取体验券、统计到场情况；同一学号重复提交会被标记出来。",
+    "preset": "minimal",
+    "fields": [
+      { "id": "sg-name", "label": "姓名", "type": "text", "required": true, "options": [] },
+      { "id": "sg-sid", "label": "学号", "type": "text", "required": true, "options": [] },
+      { "id": "sg-class", "label": "班级", "type": "text", "required": false, "options": [] },
+      { "id": "sg-phone", "label": "手机", "type": "phone", "required": true, "options": [] },
+      { "id": "sg-note", "label": "备注", "type": "textarea", "required": false, "options": [] }
+    ],
+    "keyField": "sg-sid",
+    "base": "",
+    "records": [
+      { "id": "rec-sample-01", "at": 1790989920000, "source": "scan", "values": { "sg-name": "张明", "sg-sid": "20230101", "sg-class": "计算机 2101", "sg-phone": "13800001111", "sg-note": "想参加机器人对抗表演" }, "checkinAt": 1790990160000, "ua": "Mobile Safari", "note": "", "schemaChanged": false },
+      { "id": "rec-sample-02", "at": 1790990100000, "source": "scan", "values": { "sg-name": "李婷", "sg-sid": "20230102", "sg-class": "软件 2102", "sg-phone": "13800002222", "sg-note": "想预约上午的主题分享" }, "checkinAt": 1790990340000, "ua": "WeChat", "note": "", "schemaChanged": false },
+      { "id": "rec-sample-03", "at": 1790990280000, "source": "scan", "values": { "sg-name": "王浩", "sg-sid": "20230103", "sg-class": "电子 2103", "sg-phone": "13800003333", "sg-note": "帮同宿舍 3 人一起报名" }, "checkinAt": 0, "ua": "WeChat", "note": "", "schemaChanged": false },
+      { "id": "rec-sample-04", "at": 1790990520000, "source": "scan", "values": { "sg-name": "张明", "sg-sid": "20230101", "sg-class": "计算机 2101", "sg-phone": "13800001111", "sg-note": "重复提交（用于演示去重提示）" }, "checkinAt": 0, "ua": "Mobile Safari", "note": "", "schemaChanged": false },
+      { "id": "rec-sample-05", "at": 1790991060000, "source": "import", "values": { "sg-name": "赵雪", "sg-sid": "20230105", "sg-class": "材料 2101", "sg-phone": "13800005555", "sg-note": "" }, "checkinAt": 0, "ua": "", "note": "", "schemaChanged": false },
+      { "id": "rec-sample-06", "at": 1790991360000, "source": "manual", "values": { "sg-name": "陈晨", "sg-sid": "20230106", "sg-class": "自动化 2102", "sg-phone": "13800006666", "sg-note": "现场无网络，管理者代填" }, "checkinAt": 0, "ua": "", "note": "", "schemaChanged": false }
+    ],
+    "applied": 0,
+    "updatedAt": "2026-10-03T01:36:00.000Z"
+  },
   "log": [
     { "at": "2026-10-01T02:00:00.000Z", "kind": "project", "detail": "建立项目信息表" },
     { "at": "2026-10-01T02:05:00.000Z", "kind": "ai", "detail": "AI 补全 3 个字段，推荐 21 项产出" },

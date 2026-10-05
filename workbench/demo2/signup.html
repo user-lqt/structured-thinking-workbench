@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>参与者信息填写</title>
+    <style>
+      /* 这一页要能被手机单独打开（扫码即用），所以样式内联、不引外部文件 */
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 18px 14px 40px; min-height: 100vh;
+        font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #0f172a; background: linear-gradient(180deg, #eef4f2 0%, #f7faf9 240px, #f7faf9 100%);
+        -webkit-text-size-adjust: 100%;
+      }
+      .card {
+        max-width: 520px; margin: 0 auto; background: #fff; border-radius: 16px;
+        padding: 20px 18px 22px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); border: 1px solid #e6eeeb;
+      }
+      .eyebrow { font-size: 12px; letter-spacing: .08em; color: #0f766e; font-weight: 700; }
+      h1 { font-size: 20px; margin: 6px 0 4px; line-height: 1.35; }
+      .note { margin: 8px 0 0; font-size: 13px; color: #475569; white-space: pre-wrap; }
+      .source { margin: 10px 0 0; font-size: 12px; color: #94a3b8; }
+      form { margin-top: 18px; display: grid; gap: 14px; }
+      .field { display: grid; gap: 6px; }
+      .field > span { font-size: 13px; font-weight: 600; color: #334155; }
+      .field b { color: #dc2626; font-weight: 700; margin-left: 2px; }
+      input[type=text], input[type=tel], input[type=email], input[type=number], input[type=date], select, textarea {
+        width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 10px;
+        font: inherit; color: #0f172a; background: #fff; appearance: none;
+      }
+      textarea { min-height: 76px; resize: vertical; }
+      select { background-image: linear-gradient(45deg, transparent 50%, #64748b 50%), linear-gradient(135deg, #64748b 50%, transparent 50%); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+      input:focus, select:focus, textarea:focus { outline: 2px solid #0d9488; outline-offset: 1px; border-color: #0d9488; }
+      .check { display: flex; align-items: center; gap: 8px; }
+      .check input { width: 18px; height: 18px; }
+      .err { color: #dc2626; font-size: 12px; min-height: 0; }
+      .field.is-bad input, .field.is-bad select, .field.is-bad textarea { border-color: #dc2626; background: #fff5f5; }
+      button {
+        font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 13px 16px; cursor: pointer;
+        background: #0d9488; color: #fff; width: 100%;
+      }
+      button.ghost { background: #eef2f1; color: #0f172a; }
+      button.tiny { width: auto; padding: 8px 12px; font-size: 13px; border-radius: 9px; }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; }
+      .row > button { width: auto; flex: 1 1 auto; }
+      .banner { border-radius: 12px; padding: 11px 13px; font-size: 13px; margin: 12px 0 0; }
+      .banner.warn { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+      .banner.info { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+      .banner code { background: rgba(15,23,42,.06); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
+      .ok { text-align: center; }
+      .ok .mark { width: 62px; height: 62px; border-radius: 50%; background: #d1fae5; color: #047857; font-size: 32px; line-height: 62px; margin: 0 auto 12px; }
+      .code { width: 100%; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 10px; border: 1px dashed #94a3b8; border-radius: 10px; background: #f8fafc; resize: vertical; word-break: break-all; }
+      .qr { text-align: center; margin: 14px 0 0; }
+      .qr svg { width: 190px; height: 190px; }
+      details { margin-top: 18px; border-top: 1px solid #eef2f1; padding-top: 12px; }
+      summary { cursor: pointer; font-size: 13px; color: #475569; font-weight: 600; }
+      details .tip { font-size: 12px; color: #64748b; margin: 8px 0 0; }
+      .foot { max-width: 520px; margin: 14px auto 0; font-size: 12px; color: #94a3b8; text-align: center; }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="app"></div>
+    <p class="foot">本页由工作台生成，数据留在本机浏览器；没有网络时请把「回执码」发给组织者。</p>
+
+    <script src="./core/qr.js"></script>
+    <script src="./core/signup.js"></script>
+    <script>
+      (function () {
+        const S = window.WB.signup;
+        const QR = window.WB.qr;
+        const app = document.getElementById('app');
+        const esc = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => (
+          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+        ));
+        const uid = (prefix) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+        /* ── 解析地址：p 项目号 / d 表单码 / m 本机回执 ── */
+        function params() {
+          const out = {};
+          const raw = String(location.hash || '').replace(/^#/, '');
+          for (const chunk of raw.split('&')) {
+            if (!chunk) continue;
+            const at = chunk.indexOf('=');
+            const key = at < 0 ? chunk : chunk.slice(0, at);
+            const value = at < 0 ? '' : chunk.slice(at + 1);
+            out[decodeURIComponent(key)] = value;
+          }
+          return out;
+        }
+
+        const query = params();
+        /* 项目号：优先用链接里的；链接没带（表单太长放不下 p=）时看本机唯一那份已存表单。
+           两者都没有时，这一页并不知道自己属于哪个项目：本机存储仍用 default 兜底，
+           但不会再把它当项目号发给服务端——那样记录会落进谁也看不见的桶里，
+           这种情况老实走回执码 / CSV，页面会写明原因。 */
+        const ownProject = query.p || S.soleStoredProjectId();
+        const knownProject = Boolean(ownProject);
+        const projectId = ownProject || 'default';
+        const fromLink = Boolean(query.d);
+        let schema = null;
+        let schemaSource = '';
+        /* 表单定义来自「链接 / 服务端 / 本机已存版本」才算可信；只有可信才直传，
+           扫到过期短码（服务端取不到定义、退回通用最小表单）时不再往服务端塞数据 */
+        let trustedForm = false;
+
+        if (fromLink) {
+          schema = S.unpackSchema(query.d);
+          schemaSource = schema ? '表单来自二维码/链接' : '';
+          if (schema) trustedForm = true;
+        }
+        if (!schema) {
+          const stored = S.readStoredForm(projectId);
+          if (stored) { schema = stored; schemaSource = '表单来自本机保存的版本'; trustedForm = true; }
+        }
+        if (!schema) {
+          const fallback = S.fresh({ preset: 'minimal' });
+          schema = { title: '', note: '', keyField: fallback.keyField, fields: S.unpackSchema(S.packSchema(fallback, 'plain')).fields };
+          schemaSource = '没有收到表单定义，用的是通用最小表单';
+        }
+        schema.fields = schema.fields.map((field, index) => ({ ...field, id: field.id || `f${index + 1}` }));
+
+        /* ── 短码模式 & 直传 ─────────────────────
+           链接里只有 p= 短码时（工作台连着本机服务 / 隧道），表单定义去服务端取；
+           提交后把回执码 POST 回去，组织者电脑几秒内就能看到。
+           服务不在（纯静态托管）时这两条都静默失败，照旧走回执码 / CSV。 */
+        async function loadRemoteSchema() {
+          if (query.d || !query.p) return false;
+          try {
+            const res = await fetch(`/api/signup/form?p=${encodeURIComponent(query.p)}`);
+            if (!res.ok) return false;
+            const data = await res.json();
+            const parsed = data && data.d ? S.unpackSchema(data.d) : null;
+            if (!parsed) return false;
+            schema.title = parsed.title;
+            schema.note = parsed.note;
+            schema.keyField = parsed.keyField;
+            schema.fields = (parsed.fields || []).map((field, index) => ({ ...field, id: field.id || `f${index + 1}` }));
+            schemaSource = '表单来自组织者电脑';
+            trustedForm = true;
+            if (view === 'form' && !draft) render();
+            return true;
+          } catch { return false; }
+        }
+
+        let pushed = '';
+        async function pushReceipt(code) {
+          if (!knownProject || !trustedForm) return false;
+          try {
+            const res = await fetch('/api/signup/submit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ p: projectId, receipt: code })
+            });
+            return res.ok;
+          } catch { return false; }
+        }
+        function pushAndReport(code) {
+          if (!knownProject || !trustedForm) { pushed = 'fail'; render(); return; }
+          pushed = 'pending';
+          render();
+          pushReceipt(code).then((ok) => { pushed = ok ? 'ok' : 'fail'; render(); });
+        }
+
+        /* 上一次在本机提交过的记录（同一浏览器里可以改自己的信息、签到） */
+        let mine = readMine();
+        let view = mine ? 'status' : 'form';
+        let receipt = mine ? mine.receipt : '';
+        /* reuseId = 正在编辑的记录号：改自己的信息时复用，点「再填一位」时清空重新分配 */
+        let reuseId = mine ? mine.id : '';
+        let draft = null;
+
+        function readMine() {
+          try {
+            const raw = JSON.parse(localStorage.getItem(S.mineKey(projectId)) || 'null');
+            if (!raw || !raw.id || !Array.isArray(raw.values)) return null;
+            return raw;
+          } catch { return null; }
+        }
+        function writeMine(value) {
+          try { localStorage.setItem(S.mineKey(projectId), JSON.stringify(value)); } catch { /* 私隐模式忽略 */ }
+        }
+
+        const fingerprint = () => S.fingerprint({ title: '', note: '', keyField: schema.keyField, fields: schema.fields });
+        const label = (field) => `${esc(field.label)}${field.required ? '<b>*</b>' : ''}`;
+
+        function valueOf(index) {
+          if (!draft) return '';
+          return draft[index] == null ? '' : draft[index];
+        }
+
+        function fieldHtml(field, index) {
+          const value = esc(valueOf(index));
+          const wide = field.type === 'textarea';
+          if (field.type === 'select') {
+            const options = field.options.length ? field.options : ['是', '否'];
+            return `<select data-field="${index}">
+              <option value="">请选择</option>
+              ${options.map((option) => `<option value="${esc(option)}" ${option === valueOf(index) ? 'selected' : ''}>${esc(option)}</option>`).join('')}
+            </select>`;
+          }
+          if (field.type === 'checkbox') {
+            return `<label class="check"><input type="checkbox" data-field="${index}" ${valueOf(index) === '是' ? 'checked' : ''} /><span>我已确认</span></label>`;
+          }
+          if (wide) return `<textarea data-field="${index}" placeholder="选填">${value}</textarea>`;
+          const type = field.type === 'phone' ? 'tel' : field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text';
+          const inputMode = field.type === 'phone' || field.type === 'number' ? ' inputmode="numeric"' : '';
+          return `<input type="${type}"${inputMode} data-field="${index}" value="${value}" placeholder="${field.required ? '必填' : '选填'}" />`;
+        }
+
+        function formHtml() {
+          return `
+            <div class="eyebrow">参与者信息填写</div>
+            <h1>${esc(schema.title || '请填写你的信息')}</h1>
+            ${schema.note ? `<p class="note">${esc(schema.note)}</p>` : ''}
+            <p class="source">${esc(schemaSource)} · 带 <b style="color:#dc2626">*</b> 的必填</p>
+            <form id="signupForm" novalidate>
+              ${schema.fields.map((field, index) => `
+                <div class="field" data-row="${index}">
+                  <span>${label(field)}</span>
+                  ${fieldHtml(field, index)}
+                  <em class="err" data-err="${index}"></em>
+                </div>`).join('')}
+              <button type="submit">提交</button>
+            </form>
+            <details>
+              <summary>组织者：粘贴表单码</summary>
+              <p class="tip">如果这个页面显示的是通用表单，说明链接里没有带上表单定义。把工作台「参与者」页复制出来的表单码粘到下面，就能换成正式表单。</p>
+              <textarea class="code" id="formCode" rows="3" placeholder="S1|姓名,1;学号*,1;…"></textarea>
+              <div class="row" style="margin-top:10px"><button type="button" class="ghost tiny" id="applyCode">用这个表单码</button></div>
+            </details>`;
+        }
+
+        function statusHtml() {
+          const record = mine || { at: Date.now() };
+          const when = new Date(record.at).toLocaleString('zh-CN', { hour12: false });
+          return `
+            <div class="ok">
+              <div class="mark">✓</div>
+              <h1>${record.checkinAt ? '已提交并签到' : '已提交'}</h1>
+              <p class="note">提交时间：${esc(when)}${record.checkinAt ? `<br />签到时间：${esc(new Date(record.checkinAt).toLocaleString('zh-CN', { hour12: false }))}` : ''}</p>
+            </div>
+            ${pushed === 'ok'
+              ? '<div class="banner info"><b>已直达组织者电脑 ✓</b>你的信息已经送过去了，一般几秒内出现在表格里；下面这张回执码留作备份。</div>'
+              : pushed === 'pending'
+                ? '<div class="banner info">正在发送给组织者电脑…</div>'
+                : pushed === 'fail'
+                  ? '<div class="banner warn">没能直接发到组织者电脑（没连上服务，或这张二维码没带项目号）：把下面的回执码发给他即可。</div>'
+                  : '<div class="banner info">如果组织者那边没有收到，把下面的回执码发给他即可。</div>'}
+            <textarea class="code" id="receiptText" rows="3" readonly>${esc(receipt)}</textarea>
+            ${receiptQr()}
+            <div class="row" style="margin-top:12px">
+              <button type="button" class="ghost" id="copyReceipt">复制回执码</button>
+              ${record.checkinAt ? '' : '<button type="button" id="checkin">我已到场，签到</button>'}
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button type="button" class="ghost" id="editMine">修改我的信息</button>
+              <button type="button" class="ghost" id="another">再填一位</button>
+            </div>`;
+        }
+
+        function receiptQr() {
+          if (!receipt || !QR) return '';
+          const svg = QR.svg(receipt, { scale: 4, margin: 3, label: '回执码' });
+          if (!svg) return '<p class="tip">回执码较长，扫不出二维码时直接复制文字即可。</p>';
+          return `<div class="qr">${svg}</div>`;
+        }
+
+        function render() {
+          app.innerHTML = view === 'done' ? doneHtml() : view === 'status' ? statusHtml() : formHtml();
+          if (view === 'form') bindForm();
+          else bindStatus();
+        }
+
+        function doneHtml() {
+          return `
+            <div class="ok">
+              <div class="mark">✓</div>
+              <h1>提交成功</h1>
+              <p class="note">${knownProject ? '组织者会实时看到你的信息。' : '链接里没带项目号、这台设备也认不出项目：把下面的回执码发给组织者（或让他导入 CSV），就能把你登记进表。'}</p>
+            </div>
+            <textarea class="code" id="receiptText" rows="3" readonly>${esc(receipt)}</textarea>
+            ${receiptQr()}
+            <div class="row" style="margin-top:12px">
+              <button type="button" class="ghost" id="copyReceipt">复制回执码</button>
+              <button type="button" id="checkin">我已到场，签到</button>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button type="button" class="ghost" id="another">再填一位</button>
+              <button type="button" class="ghost" id="editMine">修改我的信息</button>
+            </div>`;
+        }
+
+        /* ── 提交 ───────────────────────────── */
+
+        function collect() {
+          const values = schema.fields.map((field, index) => {
+            const el = app.querySelector(`[data-field="${index}"]`);
+            if (!el) return '';
+            if (field.type === 'checkbox') return el.checked ? '是' : '';
+            return String(el.value || '').trim();
+          });
+          return values;
+        }
+
+        function validate(values) {
+          const errors = {};
+          schema.fields.forEach((field, index) => {
+            const value = values[index];
+            if (field.required && !value) { errors[index] = '这一项需要填写'; return; }
+            if (!value) return;
+            if (field.type === 'phone' && !/^1\d{10}$/.test(value.replace(/[\s-]/g, ''))) errors[index] = '手机号看起来不太对（11 位数字）';
+            if (field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) errors[index] = '邮箱格式看起来不太对';
+            if (field.type === 'number' && Number.isNaN(Number(value))) errors[index] = '这里要填数字';
+          });
+          return errors;
+        }
+
+        function submit() {
+          const values = collect();
+          const errors = validate(values);
+          app.querySelectorAll('.field').forEach((row) => row.classList.remove('is-bad'));
+          app.querySelectorAll('.err').forEach((node) => { node.textContent = ''; });
+          const keys = Object.keys(errors);
+          if (keys.length) {
+            keys.forEach((key) => {
+              const row = app.querySelector(`[data-row="${key}"]`);
+              if (row) row.classList.add('is-bad');
+              const hint = app.querySelector(`[data-err="${key}"]`);
+              if (hint) hint.textContent = errors[key];
+            });
+            const first = app.querySelector('.field.is-bad');
+            if (first && first.scrollIntoView) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+          const id = reuseId || uid('rec');
+          const at = Date.now();
+          receipt = S.packReceipt({ kind: 'submit', id, at, h: fingerprint(), values });
+          const queued = S.appendToQueue(projectId, receipt);
+          reuseId = id;
+          draft = values;
+          mine = { id, at, values, receipt, checkinAt: 0, queued };
+          writeMine(mine);
+          view = 'done';
+          pushAndReport(receipt);
+        }
+
+        function checkin() {
+          if (!mine) return;
+          const at = Date.now();
+          const code = S.packReceipt({ kind: 'checkin', id: mine.id, at, h: fingerprint() });
+          S.appendToQueue(projectId, code);
+          mine.checkinAt = at;
+          writeMine(mine);
+          view = 'status';
+          pushAndReport(code);
+        }
+
+        function copyReceipt() {
+          const node = document.getElementById('receiptText');
+          if (!node) return;
+          node.select();
+          let ok = false;
+          try { ok = document.execCommand('copy'); } catch { ok = false; }
+          if (!ok && navigator.clipboard) {
+            navigator.clipboard.writeText(node.value).then(() => flash(node, '已复制'), () => flash(node, '请手动长按复制'));
+            return;
+          }
+          flash(node, ok ? '已复制' : '请手动长按复制');
+        }
+
+        function flash(node, message) {
+          node.setAttribute('title', message);
+          const hint = document.createElement('p');
+          hint.className = 'tip';
+          hint.textContent = message;
+          node.parentNode.insertBefore(hint, node.nextSibling);
+          setTimeout(() => hint.remove(), 2000);
+        }
+
+        function bindForm() {
+          const form = document.getElementById('signupForm');
+          if (form) form.addEventListener('submit', (event) => { event.preventDefault(); submit(); });
+          const apply = document.getElementById('applyCode');
+          if (apply) {
+            apply.addEventListener('click', () => {
+              const raw = document.getElementById('formCode').value;
+              const parsed = S.unpackSchema(raw);
+              if (!parsed) { alert('这个表单码读不出来，请核对是否复制完整。'); return; }
+              schema.title = parsed.title;
+              schema.note = parsed.note;
+              schema.keyField = parsed.keyField;
+              schema.fields = parsed.fields.map((field, index) => ({ ...field, id: field.id || `f${index + 1}` }));
+              schemaSource = '表单来自粘贴的表单码';
+              draft = null;
+              render();
+            });
+          }
+        }
+
+        function bindStatus() {
+          const copy = document.getElementById('copyReceipt');
+          if (copy) copy.addEventListener('click', copyReceipt);
+          const check = document.getElementById('checkin');
+          if (check) check.addEventListener('click', checkin);
+          const another = document.getElementById('another');
+          if (another) another.addEventListener('click', () => { reuseId = ''; draft = null; pushed = ''; view = 'form'; render(); });
+          const edit = document.getElementById('editMine');
+          if (edit) edit.addEventListener('click', () => { reuseId = mine ? mine.id : ''; draft = mine ? mine.values.slice() : null; pushed = ''; view = 'form'; render(); });
+        }
+
+        render();
+        /* 短码链接：表单定义在服务端，取回来再渲染一次 */
+        loadRemoteSchema();
+      }());
+    </script>
+  </body>
+</html>

@@ -22,6 +22,39 @@ window.WB.views = window.WB.views || {};
     return statCard('活动已结束', String(-days), '天', 'muted');
   }
 
+  /* 填写路线图：从空项目到能导出材料的有序引导。
+     每一步「做没做完」由 core/guide.js 从项目数据推断，点一行就跳到能处理它的地方；
+     顶栏那颗「引导」按钮用的是同一份判断。 */
+  function renderGuide(state) {
+    const guide = window.WB.guide.progress(state);
+    const gotoAttrs = (target) => [
+      `data-goto-view="${escapeHtml(target.view)}"`,
+      target.taskView ? `data-goto-taskview="${escapeHtml(target.taskView)}"` : '',
+      target.phase ? `data-goto-phase="${escapeHtml(target.phase)}"` : '',
+      target.openMaterial ? `data-goto-open="${escapeHtml(target.openMaterial)}"` : ''
+    ].filter(Boolean).join(' ');
+    const rows = guide.steps.map((step) => {
+      const isCurrent = Boolean(guide.current) && guide.current.id === step.id;
+      const tag = isCurrent ? '<i class="guide-tag is-now">当前</i>'
+        : (step.optional ? '<i class="guide-tag">可选</i>' : '');
+      return `<li><button type="button" class="guide-step is-${step.status}${isCurrent ? ' is-current' : ''}" ${gotoAttrs(step.target)} title="${escapeHtml(step.why)}">
+        <span class="guide-num">${step.status === 'done' ? '✓' : step.index}</span>
+        <span class="guide-body"><b>${escapeHtml(step.title)}${tag}</b><small>${escapeHtml(step.detail)}</small></span>
+        <span class="guide-go">${step.status === 'done' ? '已完成' : escapeHtml(step.cta)} →</span>
+      </button></li>`;
+    }).join('');
+    const next = guide.current
+      ? `<button type="button" class="button button-primary guide-next" ${gotoAttrs(guide.current.target)}>下一步：${escapeHtml(guide.current.title)} →</button>`
+      : '<span class="guide-all-done">✓ 主线都走完了，可以去做方案比选、变更演练或归档导出</span>';
+    return `<div class="card guide-card">
+      <div class="card-title"><h3>填写路线图</h3><small>按顺序做 · 完成状态由系统从项目数据推断，不用手动打勾 · 点任意一步直接过去</small></div>
+      <div class="guide-top">
+        <div class="guide-progress"><div class="bar"><i style="width:${guide.percent}%"></i></div><span>${guide.done} / ${guide.total} 步</span></div>
+        ${next}
+      </div>
+      <ol class="guide-steps">${rows}</ol>
+    </div>`;
+  }
   function renderPhases(state) {
     const overall = window.WB.wbs.overall(state.wbs);
     const blocks = PHASES.map((phase) => {
@@ -161,6 +194,7 @@ window.WB.views = window.WB.views || {};
 
     panel.innerHTML = `
       <div class="stats-row">${stats}</div>
+      ${renderGuide(state)}
       ${renderPhases(state)}
       <div class="two-col">
         ${renderRiskBlock(state)}

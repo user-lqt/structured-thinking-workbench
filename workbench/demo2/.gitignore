@@ -1,0 +1,5 @@
+# 运行期生成：AI 生图、手机直传的提交队列（手机提交落在这里）
+generated/
+
+# 静态托管打包产物（tools/pack-static.mjs 的输出）
+dist/

@@ -175,6 +175,10 @@ window.WB.views = window.WB.views || {};
   const fillModels = new Map();
   const fillOpen = new Set();
   const fillScope = new Map();
+  /* 逐格填空：索引只放内存（和 fillOpen / fillScope 一样），不写进存档；
+     fillBasis 暂存「这一格的值是谁给的依据」，只在当次会话里显示。 */
+  const fillStep = new Map();
+  const fillBasis = new Map();
   const AI_FILL_BATCH = 12;
   const FILL_SCOPES = [
     { value: 'main', label: '字段与段落' },
@@ -225,6 +229,109 @@ window.WB.views = window.WB.views || {};
   const fillFilledCount = (outputKey, model) => model.model.slots
     .filter((slot) => U.text(fillValueOf(outputKey, model, slot.id)) !== '').length;
 
+  /* ── 逐格填空 ──────────────────────────────
+     一屏几十个输入框容易让人不知道从哪下手，这里改成一次只看一格：
+     位置、字段名、参考原文、默认值来源都在眼前，填完自动翻到下一个空格。 */
+  const fillStepOn = (outputKey) => fillStep.has(outputKey);
+  const fillBasisOf = (outputKey, slotId) => fillBasis.get(outputKey)?.[slotId] || '';
+  function basisStore(outputKey) {
+    if (!fillBasis.has(outputKey)) fillBasis.set(outputKey, {});
+    return fillBasis.get(outputKey);
+  }
+
+  function fillStepSlots(outputKey, cache) {
+    const scope = fillScopeOf(outputKey);
+    return cache.model.slots.filter((slot) => fillVisible(slot, scope));
+  }
+
+  function fillStepIndex(outputKey, list) {
+    if (!list.length) return 0;
+    const raw = fillStep.get(outputKey);
+    const index = Number.isInteger(raw) ? raw : 0;
+    return Math.min(Math.max(index, 0), list.length - 1);
+  }
+
+  function fillStepMove(outputKey, delta) {
+    const cache = fillModels.get(outputKey);
+    if (!cache) return;
+    const list = fillStepSlots(outputKey, cache);
+    if (!list.length) return;
+    fillStep.set(outputKey, fillStepIndex(outputKey, list) + delta);
+  }
+
+  /* 停在当前范围内的第一处空格（没有空格就回到第一格） */
+  function fillStepReset(outputKey) {
+    if (!fillStepOn(outputKey)) return;
+    const cache = fillModels.get(outputKey);
+    const list = cache ? fillStepSlots(outputKey, cache) : [];
+    const values = cache ? fillValues(outputKey, cache) : {};
+    const first = list.findIndex((slot) => U.text(values[slot.id]) === '');
+    fillStep.set(outputKey, first === -1 ? 0 : first);
+  }
+
+  /* 沿 step 方向找下一个还没填的格子；找不到返回 false，让调用方给个提示 */
+  function fillStepSeek(outputKey, step) {
+    const cache = fillModels.get(outputKey);
+    if (!cache) return false;
+    const list = fillStepSlots(outputKey, cache);
+    const values = fillValues(outputKey, cache);
+    const from = fillStepIndex(outputKey, list);
+    for (let index = from + step; index >= 0 && index < list.length; index += step) {
+      if (U.text(values[list[index].id]) === '') { fillStep.set(outputKey, index); return true; }
+    }
+    return false;
+  }
+
+  function toggleFillStep(outputKey) {
+    if (fillStepOn(outputKey)) {
+      fillStep.delete(outputKey);
+      render();
+      return;
+    }
+    fillStep.set(outputKey, 0);
+    fillStepReset(outputKey);
+    const cache = fillModels.get(outputKey);
+    const total = cache ? fillStepSlots(outputKey, cache).length : 0;
+    render();
+    window.WB.toast(total ? `逐格填空：共 ${total} 格，从第一处空格开始` : '这个范围里没有空位');
+  }
+
+  function fillStepBody(outputKey, cache) {
+    const canWrite = U.canOperate();
+    const list = fillStepSlots(outputKey, cache);
+    if (!list.length) return '';
+    const index = fillStepIndex(outputKey, list);
+    const slot = list[index];
+    const values = fillValues(outputKey, cache);
+    const value = values[slot.id] !== undefined ? values[slot.id] : '';
+    const blank = fillOwnOf(outputKey)[slot.id] === '';
+    const fromDraft = cache.draft.values[slot.id] !== undefined;
+    const basis = fillBasisOf(outputKey, slot.id);
+    const placeholder = slot.now ? `留空就保留参考里的「${slot.now}」` : '留空 = 保持原样';
+    const input = slot.kind === 'text'
+      ? `<textarea class="fill-input fill-step-input" rows="3" data-fill-input="${slot.id}" ${canWrite ? '' : 'disabled '}placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea>`
+      : `<input class="fill-input fill-step-input" type="text" data-fill-input="${slot.id}" value="${escapeHtml(value)}" ${canWrite ? '' : 'disabled '}placeholder="${escapeHtml(placeholder)}">`;
+    const actions = canWrite ? `<div class="fill-step-actions">
+        <button class="button button-ghost" data-fill-step-prev="${outputKey}" ${index === 0 ? 'disabled' : ''}>← 上一格</button>
+        <button class="button button-ghost" data-fill-step-next="${outputKey}">下一格 →</button>
+        <button class="button button-ghost" data-fill-step-skip="${outputKey}" title="往后找第一个还没填的格子">跳到下一个空格</button>
+        <button class="button button-quiet" data-fill-step-ai="${outputKey}"><span>✦</span> 让 AI 只填这一格</button>
+        <button class="button button-quiet" data-fill-step-blank="${outputKey}">${blank ? '取消置空' : '这一格置空'}</button>
+      </div>` : '';
+    return `<div class="fill-step" data-fill-step-body="${outputKey}">
+      <div class="fill-step-head">
+        <span class="fill-step-pos">第 ${index + 1} / ${list.length} 格 · 已填 ${fillFilledCount(outputKey, cache)}</span>
+        <span class="fill-step-where">${escapeHtml(slot.where || (slot.kind === 'cell' ? '表格数据格' : '正文'))}</span>
+      </div>
+      <div class="fill-step-name">${fromDraft ? '<i class="fill-from" title="默认值来自项目信息表">表</i>' : ''}${slot.label ? escapeHtml(slot.label) : `<i>（${KIND_HINT[slot.kind]}）</i>`}${blank ? '<i class="fill-step-flag">置空</i>' : ''}</div>
+      ${input}
+      <div class="fill-step-meta">
+        <small class="fill-now" title="参考里的原文">参考原文：${escapeHtml(slot.now || '（空）')}</small>
+        ${basis ? `<small class="fill-basis">AI 依据：${escapeHtml(basis)}</small>` : ''}
+      </div>
+      ${actions}
+    </div>`;
+  }
   function fillRow(outputKey, slot, model, canWrite) {
     const own = fillOwnOf(outputKey);
     const value = fillValueOf(outputKey, model, slot.id);
@@ -270,11 +377,13 @@ window.WB.views = window.WB.views || {};
       all: slots.length
     };
     const scope = fillScopeOf(outputKey);
+    const stepOn = fillStepOn(outputKey);
     const groups = fillGroups(cache, scope);
-    const body = groups.map((group) => `<details class="fill-group"${group.slots.some((slot) => U.text(values[slot.id])) ? ' open' : ''}>
+    const groupsHtml = groups.map((group) => `<details class="fill-group"${group.slots.some((slot) => U.text(values[slot.id])) ? ' open' : ''}>
         <summary><b>${escapeHtml(group.name)}</b><small>${group.slots.length} 处</small></summary>
         ${group.slots.map((slot) => fillRow(outputKey, slot, cache, canWrite)).join('')}
       </details>`).join('');
+    const body = stepOn ? fillStepBody(outputKey, cache) : groupsHtml;
     return `<section class="fill-panel" data-fill-panel="${outputKey}">
       <div class="fill-head">
         <b>参考表填值</b>
@@ -282,6 +391,7 @@ window.WB.views = window.WB.views || {};
         <span class="fill-count" data-fill-count>${slots.length} 个空位 · 已填 ${filled} 个</span>
         <span class="fill-scopes">${FILL_SCOPES.map((item) => `<button class="fill-scope${item.value === scope ? ' is-on' : ''}" data-fill-scope="${item.value}" data-fill-owner="${outputKey}">${item.label} ${counts[item.value]}</button>`).join('')}</span>
         <span class="fill-actions">
+          <button class="button button-quiet" data-fill-step-toggle="${outputKey}" title="一次只看一格，逐格往前填；「让 AI 只填这一格」也只会围绕这一格给建议">${stepOn ? '切换列表视图' : '逐格填空'}</button>
           <button class="button button-primary" data-fill-download="${outputKey}" title="导出的就是这份参考表：表格、栏目、条目数、缩进、页眉页脚全按参考，只有下面填了值的地方被换掉">下载填好的 Word</button>
           <button class="button button-quiet" data-fill-ai="${outputKey}" ${window.WB.ai.ready && canWrite ? '' : 'disabled'} title="${escapeHtml(window.WB.ai.ready ? '让 AI 只补还没填的空位，不动结构' : U.AI_OFFLINE_HINT)}">AI 补全空位</button>
           <button class="button button-quiet" data-fill-reset="${outputKey}" ${canWrite ? '' : 'disabled'} title="清掉手改，回到项目信息表推出来的默认值">清空手改</button>
@@ -303,6 +413,7 @@ window.WB.views = window.WB.views || {};
 
   function closeFill(outputKey) {
     fillOpen.delete(outputKey);
+    fillStep.delete(outputKey);
     render();
   }
 
@@ -410,7 +521,7 @@ window.WB.views = window.WB.views || {};
     return list.map((row) => {
       const source = row && typeof row === 'object' && !Array.isArray(row) ? row : { value: row };
       const id = U.text(source.id ?? source.ID ?? source.空位 ?? source.slot);
-      return { id: known.has(id) ? id : '', value: pick(source) };
+      return { id: known.has(id) ? id : '', value: pick(source), basis: U.text(source.basis ?? source.依据) };
     }).filter((row) => row.id);
   }
 
@@ -465,11 +576,12 @@ window.WB.views = window.WB.views || {};
       }, window.WB.ai.fillContract(), '/api/material');
       const drafts = fillDraftsOf(outputKey);
       for (const row of normaliseFillRows(data, model.model.slots)) {
-        const { id, value } = row;
+        const { id, value, basis } = row;
         if (!id) continue;
         if (!value) { blank += 1; continue; }
         drafts[id] = value;
         decided[id] = value;
+        if (basis) basisStore(outputKey)[id] = basis;
         filled += 1;
       }
       store().save();
@@ -481,6 +593,44 @@ window.WB.views = window.WB.views || {};
     window.WB.toast(filled ? `AI 补了 ${filled} 个空位${tail}${miss}，核对后可直接下载` : `AI 没有给出可用的值${tail}，手动填吧`);
     return filled > 0;
   }
+  /* 逐格向导专用：一次只问一格。
+     上下文只围绕这一处，模型不用在十几个空位里分配注意力，比整批更准；
+     回来的 basis 会显示在格子下面，让人知道这个值是从哪推出来的。 */
+  async function aiFillOne(outputKey, slotId) {
+    if (!U.canOperate()) { window.WB.toast('只读访客不能改动填值表'); return false; }
+    const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
+    const model = await fillModel(outputKey);
+    if (!item || !model) { window.WB.toast('这份材料还没挂参考件'); return false; }
+    if (!window.WB.ai.ready) { window.WB.toast(U.AI_OFFLINE_HINT); return false; }
+    const slot = model.model.slots.find((entry) => entry.id === slotId);
+    if (!slot) return false;
+    const values = fillValues(outputKey, model);
+    window.WB.toast('正在让 AI 想这一格…');
+    const data = await window.WB.ai.run(item.skill, {
+      产出: item.label,
+      任务: `这张表里只有 1 个空位要填，请只给出这一格的文字。`,
+      空位: [fillSlotView(slot)],
+      已填对照: Object.entries(values).filter(([, value]) => U.text(value)).slice(-20).map(([id, value]) => ({ id, value })),
+      约束: [
+        '只回这一个 id，values 里只需要一行；没有依据就回空字符串。',
+        '只给值：不要写栏目名、不要写「字段：」、不要编号、不要解释。',
+        '依据顺序：① 项目信息表 ② 任务分解 / 风险台账 / 资源台账 / 素材库里的既有事实 ③ 参考原文的写法。',
+        '数字格（金额 / 费用 / 单价 / 合计 / 数量 / 人数）只能用上面这些既有数字，算不出、找不到依据就留空，不要编。',
+        '不要照抄参考原文里属于别的事实的值（时间、地点、人名、单位名、金额）。',
+        '同一份表里的口径要一致：同一个负责人 / 环节 / 时间在别处已经定过，就照已填对照里的写法。'
+      ].join('\n'),
+      ...fillContext(outputKey)
+    }, window.WB.ai.fillContract(), '/api/material');
+    const hit = normaliseFillRows(data, model.model.slots).find((row) => row.id === slotId);
+    if (!hit || !hit.value) { window.WB.toast('AI 认为这一格没有依据，留空或手填更稳妥'); return false; }
+    fillDraftsOf(outputKey)[slotId] = hit.value;
+    if (hit.basis) basisStore(outputKey)[slotId] = hit.basis;
+    store().save();
+    const preview = U.text(hit.value).slice(0, 24);
+    window.WB.toast(`AI 填入：${preview}${hit.basis ? `（依据：${hit.basis}）` : ''}`);
+    return true;
+  }
+
   /* ── 材料卡片 ─────────────────────────── */
 
   function materialCard(item) {
@@ -1210,7 +1360,9 @@ window.WB.views = window.WB.views || {};
       资源台账: (current.resources || []).map((item) => ({
         资源: item.name, 类型: kindLabel(item.kind), 单位: item.unit, 可用: item.available, 已安排: item.assigned, 责任人: item.owner, 说明: item.note
       })),
-      素材库: current.assets.map((asset) => ({ 名称: asset.name, 类型: asset.kind, 标签: (asset.tags || []).join('/'), 说明: asset.note }))
+      素材库: current.assets.map((asset) => ({ 名称: asset.name, 类型: asset.kind, 标签: (asset.tags || []).join('/'), 说明: asset.note })),
+      /* 已收到的参与者信息：写《报名表 / 签到表 / 现场记录表》时直接引用真实数字 */
+      参与者信息收集: window.WB.signup ? window.WB.signup.contextFor(current.signup) : '未启用'
     };
   }
 
@@ -1446,11 +1598,48 @@ window.WB.views = window.WB.views || {};
       if (fillDownload) { fillFromReference(fillDownload.dataset.fillDownload); return; }
       const fillAi = event.target.closest('[data-fill-ai]');
       if (fillAi) { aiFillSlots(fillAi.dataset.fillAi); return; }
+      const fillStepToggle = event.target.closest('[data-fill-step-toggle]');
+      if (fillStepToggle) { toggleFillStep(fillStepToggle.dataset.fillStepToggle); return; }
+      const fillStepPrev = event.target.closest('[data-fill-step-prev]');
+      if (fillStepPrev) { fillStepMove(fillStepPrev.dataset.fillStepPrev, -1); render(); return; }
+      const fillStepNext = event.target.closest('[data-fill-step-next]');
+      if (fillStepNext) { fillStepMove(fillStepNext.dataset.fillStepNext, 1); render(); return; }
+      const fillStepSkip = event.target.closest('[data-fill-step-skip]');
+      if (fillStepSkip) {
+        if (fillStepSeek(fillStepSkip.dataset.fillStepSkip, 1)) render();
+        else window.WB.toast('这个范围里后面没有空格了');
+        return;
+      }
+      const fillStepBlank = event.target.closest('[data-fill-step-blank]');
+      if (fillStepBlank) {
+        const blankKey = fillStepBlank.dataset.fillStepBlank;
+        const blankCache = fillModels.get(blankKey);
+        const blankList = blankCache ? fillStepSlots(blankKey, blankCache) : [];
+        const blankSlot = blankList[fillStepIndex(blankKey, blankList)];
+        if (!blankCache || !blankSlot) return;
+        const own = fillOwnOf(blankKey);
+        if (own[blankSlot.id] === '') { delete own[blankSlot.id]; window.WB.toast('已取消置空，回到原来的值'); }
+        else { own[blankSlot.id] = ''; window.WB.toast('这一格会输出为空'); }
+        store().save();
+        render();
+        return;
+      }
+      const fillStepAi = event.target.closest('[data-fill-step-ai]');
+      if (fillStepAi) {
+        const aiKey = fillStepAi.dataset.fillStepAi;
+        const aiCache = fillModels.get(aiKey);
+        const aiList = aiCache ? fillStepSlots(aiKey, aiCache) : [];
+        const aiSlot = aiList[fillStepIndex(aiKey, aiList)];
+        if (!aiSlot) return;
+        aiFillOne(aiKey, aiSlot.id).then((ok) => { if (ok) fillStepMove(aiKey, 1); render(); });
+        return;
+      }
       const fillReset = event.target.closest('[data-fill-reset]');
       if (fillReset) { resetFill(fillReset.dataset.fillReset); return; }
       const fillScopeButton = event.target.closest('[data-fill-scope]');
       if (fillScopeButton) {
         fillScope.set(fillScopeButton.dataset.fillOwner, fillScopeButton.dataset.fillScope);
+        fillStepReset(fillScopeButton.dataset.fillOwner);
         render();
         return;
       }
@@ -1693,5 +1882,5 @@ window.WB.views = window.WB.views || {};
     });
   }
 
-  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, fillContext, normaliseFillRows, resetFill, setFillValue, setFillBlank, fillValues, posterSvg: () => posterSvg(posterDesign()) };
+  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterSvg: () => posterSvg(posterDesign()) };
 }());

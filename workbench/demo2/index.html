@@ -85,6 +85,7 @@
           </div>
         </div>
         <div class="topbar-right">
+          <button type="button" class="button button-ghost guide-chip" id="guideChip" title=""></button>
           <span id="aiStatus" class="ai-status"><i></i>检测中</span>
           <select id="projectSwitch" class="project-switch" title="切换当前项目" aria-label="切换当前项目"></select>
           <button class="button button-ghost" id="editBasic">基本信息</button>
@@ -255,6 +256,17 @@
           <div id="assetList"></div>
         </section>
 
+        <section class="panel hidden" id="signupPanel">
+          <div class="panel-head">
+            <div>
+              <h2>参与者信息收集</h2>
+              <p>可选能力：校内小活动要收集参与者信息时，由你定义字段、生成填写页与二维码；参与者扫码自己填，现场随时补登或改错，表格实时更新。</p>
+              <p id="signupSummary" class="skill-summary"></p>
+            </div>
+          </div>
+          <div id="signupBody"></div>
+        </section>
+
         <section class="panel hidden" id="helpPanel"></section>
       </main>
     </div>
@@ -266,14 +278,18 @@
     <input type="file" id="assetFile" accept="image/*,.txt,.md,.csv,.json" multiple hidden />
     <input type="file" id="bundleFile" accept=".json" hidden />
     <input type="file" id="projectBundleFile" accept=".json" hidden />
+    <input type="file" id="signupFile" accept=".csv,.txt,.json" hidden />
     <datalist id="wbsTaskOptions"></datalist>
 
     <script src="./schemas.js"></script>
     <script src="./materials.js"></script>
     <script src="./core/util.js"></script>
+    <script src="./core/qr.js"></script>
+    <script src="./core/signup.js"></script>
     <script src="./core/store.js"></script>
     <script src="./core/risk.js"></script>
     <script src="./core/wbs.js"></script>
+    <script src="./core/guide.js"></script>
     <script src="./core/drills.js"></script>
     <script src="./core/ai.js"></script>
     <script src="./core/interview.js"></script>
@@ -291,6 +307,7 @@
     <script src="./views/drills.js"></script>
     <script src="./views/material.js"></script>
     <script src="./views/assets.js"></script>
+    <script src="./views/signup.js"></script>
     <script src="./views/help.js"></script>
     <script src="./app.js"></script>
   </body>

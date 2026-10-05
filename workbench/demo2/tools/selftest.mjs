@@ -39,7 +39,7 @@ function makeElement(id = '') {
       }
     },
     addEventListener: (type, fn) => { (events[type] = events[type] || []).push(fn); },
-    emit: (type, event) => { let result; for (const fn of events[type] || []) result = fn(event); return result; },
+    emit: (type, event) => { let result; /* 派发期间新注册的监听器不参与本轮（与浏览器一致，避免重绘后反复追加） */ for (const fn of [...(events[type] || [])]) result = fn(event); return result; },
     removeEventListener: noop, appendChild: noop, removeChild: noop,
     setAttribute: noop, removeAttribute: noop, getAttribute: () => null, getAttributeNames: () => [],
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
@@ -71,11 +71,18 @@ globalThis.localStorage = {
 globalThis.confirm = () => true;
 globalThis.prompt = () => '';
 
+/* 视图挂载会碰窗口级监听与轮询：这里补上；计时器给个不落地的假实现，
+   否则自测进程会被轮询定时器一直挂着不退出（浏览器里才需要真的定时器）。 */
+globalThis.window.addEventListener = noop;
+globalThis.window.removeEventListener = noop;
+globalThis.window.setInterval = () => 0;
+globalThis.window.clearInterval = noop;
+
 const MODULES = [
   'schemas.js', 'materials.js',
-  'core/util.js', 'core/store.js', 'core/risk.js', 'core/wbs.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
+  'core/util.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/tasks.js', 'views/decision.js',
-  'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/assets.js', 'views/help.js',
+  'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
 ];
 
@@ -763,7 +770,7 @@ check('AI 可补勾未选择的产出', p4.outputs.poster === true);
 /* ── 汇总 ──────────────────────────────── */
 /* ── 9. 视图渲染冒烟：每个视图都要能出表且不抛错 ── */
 const VIEW_IDS = ['projects', 'overview', 'manifest', 'tasks', 'decision', 'risk',
-  'resources', 'drills', 'material', 'assets', 'help'];
+  'resources', 'drills', 'material', 'assets', 'signup', 'help'];
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const scriptOrder = [...html.matchAll(/src="\.\/(.+?)"/g)].map((match) => match[1]);
 check('自测的模块加载顺序与 index.html 脚本顺序一致',
@@ -1002,6 +1009,806 @@ check('jumpFrom 切到目标视图并写入阶段筛选',
   `view=${store.state.view} phase=${store.state.ui.taskPhase}`);
 store.state.ui.taskPhase = 'all';
 
+/* ── 10b. 填写路线图：步骤、完成状态与顶栏引导 ──
+   引导的每一步都不靠「用户点过」，而是从项目数据推断，所以这里故意把数据清空再逐项加回去。 */
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.project.basic = {};
+store.state.wbs = [];
+store.state.risks = [];
+store.state.resources = [];
+store.state.assets = [];
+store.state.materials = {};
+store.state.references = {};
+store.state.fillDrafts = {};
+for (const key of Object.keys(store.state.project.outputs)) delete store.state.project.outputs[key];
+const guideAPI = window.WB.guide;
+check('填写路线图已导出（steps / progress / current）',
+  typeof guideAPI?.steps === 'function' && typeof guideAPI?.progress === 'function' && typeof guideAPI?.current === 'function');
+const emptyGuide = guideAPI.progress(store.state);
+check('填写路线图：每一步都带说明、按钮文案与有效跳转目标',
+  emptyGuide.steps.length >= 6
+  && emptyGuide.steps.every((step) => step.title && step.why && step.cta && step.detail && VIEW_ID_SET.has(step.target.view)),
+  emptyGuide.steps.map((step) => step.target.view).join(','));
+check('填写路线图：空项目时 0 完成、停在第一步，可选步骤不计入总数',
+  emptyGuide.done === 0 && emptyGuide.current?.id === 'basic'
+  && emptyGuide.total === emptyGuide.steps.filter((step) => !step.optional).length
+  && emptyGuide.steps.some((step) => step.optional));
+store.state.project.basic = { type: '科技文化节', name: '路线图测试', date: '2026-11-08' };
+const step1Guide = guideAPI.progress(store.state);
+check('填写路线图：填上必填项后第一步自动完成、当前步前进到「勾选产出」',
+  step1Guide.steps.find((step) => step.id === 'basic').status === 'done' && step1Guide.current?.id === 'outputs');
+store.state.project.outputs.proposal = true;
+store.state.wbs = ['plan', 'prepare', 'execute', 'close'].map((phase) => store.normaliseRow({ phase, task: `任务-${phase}` }));
+const step3Guide = guideAPI.progress(store.state);
+check('填写路线图：勾产出 + 任务分解一到位，状态就跟着前进',
+  step3Guide.steps.find((step) => step.id === 'outputs').status === 'done'
+  && step3Guide.steps.find((step) => step.id === 'wbs').status === 'done'
+  && step3Guide.current?.id === 'risk');
+window.WB.renderTopbar();
+const guideChip = document.getElementById('guideChip');
+let chipTarget = null;
+try { chipTarget = JSON.parse(guideChip.dataset.guideTarget || 'null'); } catch (error) { chipTarget = null; }
+check('顶栏引导按钮给出「下一步」文案', guideChip.innerHTML.includes('下一步') && guideChip.innerHTML.includes('风险'));
+check('顶栏引导按钮带可解析、可跳转的目标',
+  Boolean(chipTarget) && VIEW_ID_SET.has(chipTarget.view) && window.WB.gotoTarget(chipTarget) === true);
+
+/* ── 10c. 二维码（自实现）：容量、功能图案格数、格式/版本信息、纠错码与独立解码往返 ──
+   解码器是照标准另写的一份：功能区域、蛇形填位、反交错、RS 校验都不复用 core/qr.js，
+   所以「编码 → 解码 → 原文一致」同时证明了布局、掩码、交错与纠错码都写对了。 */
+const QR = window.WB.qr;
+check('二维码模块已导出（encode / svg / pngDataUrl）',
+  typeof QR?.encode === 'function' && typeof QR?.svg === 'function' && typeof QR?.pngDataUrl === 'function');
+check('二维码容量上限 = 122 字节（纠错等级 M、版本 7 封顶）',
+  QR.MAX_BYTES === 122 && QR.MAX_VERSION === 7, `${QR.MAX_BYTES}/${QR.MAX_VERSION}`);
+QR.VERSIONS.forEach((info, index) => {
+  check(`二维码 v${index + 1} 版本表自洽（分块 × 每块码字 = 总码字）`,
+    info.blocks * (info.data / info.blocks + info.ec) === info.total,
+    `${info.blocks}×(${info.data / info.blocks}+${info.ec}) ≠ ${info.total}`);
+});
+check('纠错等级 M 的格式信息 M/0 = 0x5412（标准值）', QR.formatBits(0) === 0x5412, QR.formatBits(0).toString(16));
+const qrBchOk = (bits) => {
+  let rem = bits ^ 0x5412;
+  for (let i = 14; i >= 10; i--) if ((rem >>> i) & 1) rem ^= 0x537 << (i - 10);
+  return rem === 0;
+};
+check('8 个掩码的格式信息都通过 BCH 自检',
+  Array.from({ length: 8 }, (_, mask) => qrBchOk(QR.formatBits(mask))).every(Boolean));
+{
+  let rem = 7;
+  for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) ? 0x1f25 : 0);
+  check('二维码 v7 版本信息 = 0x07C94（标准值）', ((7 << 12) | rem) === 0x07c94, ((7 << 12) | rem).toString(16));
+}
+/* 照标准重画一遍功能图案：剩下的数据格数必须恰好等于 数据位 + 剩余位 */
+const QR_ALIGN = [[], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38]];
+function qrFunctionMap(version) {
+  const size = version * 4 + 17;
+  const fn = new Set();
+  const add = (row, col) => { if (row >= 0 && col >= 0 && row < size && col < size) fn.add(row * size + col); };
+  for (const [row0, col0] of [[0, 0], [0, size - 7], [size - 7, 0]])
+    for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) add(row0 + dr, col0 + dc);
+  for (let i = 8; i <= size - 9; i++) { add(6, i); add(i, 6); }
+  for (const row of QR_ALIGN[version - 1]) for (const col of QR_ALIGN[version - 1]) {
+    if ((row === 6 && col === 6) || (row === 6 && col === size - 7) || (row === size - 7 && col === 6)) continue;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) add(row + dr, col + dc);
+  }
+  if (version >= 7) for (let i = 0; i < 18; i++) {
+    const a = size - 11 + (i % 3);
+    const b = Math.floor(i / 3);
+    add(b, a); add(a, b);
+  }
+  for (let i = 0; i <= 5; i++) add(i, 8);
+  add(7, 8); add(8, 8); add(8, 7);
+  for (let i = 9; i < 15; i++) add(8, 14 - i);
+  for (let i = 0; i < 8; i++) add(8, size - 1 - i);
+  for (let i = 8; i < 15; i++) add(size - 15 + i, 8);
+  add(size - 8, 8);
+  return fn;
+}
+for (let version = 1; version <= QR.MAX_VERSION; version++) {
+  const code = QR.encode('a'.repeat(QR.maxBytes(version)));
+  check(`二维码 v${version} 数据区格数 = 数据位 + 剩余位`,
+    code.base.free === code.base.totalBits, `${code.base.free} vs ${code.base.totalBits}`);
+}
+/* GF(256) 与独立解码器 */
+const QR_EXP = new Uint8Array(512);
+const QR_LOG = new Uint8Array(256);
+{
+  let value = 1;
+  for (let i = 0; i < 255; i++) { QR_EXP[i] = value; QR_LOG[value] = i; value <<= 1; if (value & 0x100) value ^= 0x11d; }
+  for (let i = 255; i < 512; i++) QR_EXP[i] = QR_EXP[i - 255];
+}
+const qrMul = (a, b) => (a === 0 || b === 0 ? 0 : QR_EXP[QR_LOG[a] + QR_LOG[b]]);
+function qrDecode(code) {
+  const size = code.size;
+  const version = (size - 17) / 4;
+  const at = (row, col) => code.modules[row * size + col] === 1;
+  /* 读回来的是原始位（还没去掩码）：qrBchOk 自己会异或 0x5412，别在这里重复一次 */
+  const readCopy = (list) => {
+    let bits = 0;
+    list.forEach(([row, col], index) => { if (at(row, col)) bits |= 1 << index; });
+    return bits;
+  };
+  const copy1 = [];
+  for (let i = 0; i <= 5; i++) copy1.push([i, 8]);
+  copy1.push([7, 8], [8, 8], [8, 7]);
+  for (let i = 9; i < 15; i++) copy1.push([8, 14 - i]);
+  const copy2 = [];
+  for (let i = 0; i < 8; i++) copy2.push([8, size - 1 - i]);
+  for (let i = 8; i < 15; i++) copy2.push([size - 15 + i, 8]);
+  const first = readCopy(copy1);
+  const second = readCopy(copy2);
+  if (first !== second || !qrBchOk(first)) return null;
+  const mask = (first ^ 0x5412) >>> 10;
+  const fn = qrFunctionMap(version);
+  const info = QR.VERSIONS[version - 1];
+  const total = info.total;
+  const bits = [];
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    const upward = ((right + 1) & 2) === 0;
+    for (let vert = 0; vert < size; vert++) {
+      for (let j = 0; j < 2; j++) {
+        const col = right - j;
+        const row = upward ? size - 1 - vert : vert;
+        if (fn.has(row * size + col)) continue;
+        let bit = at(row, col);
+        if (QR.maskAt(mask, row, col)) bit = !bit;
+        bits.push(bit ? 1 : 0);
+      }
+    }
+  }
+  const words = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    let value = 0;
+    for (let j = 0; j < 8; j++) value = (value << 1) | bits[i + j];
+    words.push(value);
+  }
+  if (words.length !== total) return null;
+  const perBlock = info.data / info.blocks;
+  const dataBlocks = Array.from({ length: info.blocks }, () => []);
+  let cursor = 0;
+  for (let i = 0; i < perBlock; i++) for (const block of dataBlocks) block.push(words[cursor++]);
+  const ecBlocks = Array.from({ length: info.blocks }, () => []);
+  for (let i = 0; i < info.ec; i++) for (const block of ecBlocks) block.push(words[cursor++]);
+  const syndromeFree = (block) => {
+    for (let i = 0; i < info.ec; i++) {
+      let sum = 0;
+      for (const word of block) sum = qrMul(sum, QR_EXP[i]) ^ word;
+      if (sum !== 0) return false;
+    }
+    return true;
+  };
+  for (let b = 0; b < info.blocks; b++) if (!syndromeFree([...dataBlocks[b], ...ecBlocks[b]])) return null;
+  const payload = dataBlocks.flat();
+  const mode = payload[0] >> 4;
+  const length = ((payload[0] & 0x0f) << 4) | (payload[1] >> 4);
+  if (mode !== 4) return null;
+  const bytes = [];
+  let bitPos = 12;
+  for (let i = 0; i < length; i++) {
+    let value = 0;
+    for (let j = 0; j < 8; j++) {
+      const index = bitPos + j;
+      value = (value << 1) | ((payload[index >> 3] >>> (7 - (index & 7))) & 1);
+    }
+    bytes.push(value);
+    bitPos += 8;
+  }
+  return { version, mask, text: new TextDecoder().decode(Uint8Array.from(bytes)) };
+}
+const qrSamples = [
+  'http://127.0.0.1:4175/signup.html#p=proj-m1abc2-d3e4f&d=UzF8',
+  'HELLO',
+  '姓名,1;学号*,1;班级;手机,p,1;备注,m',
+  '活动参与者信息收集 · 扫码填写 · 校内小活动',
+  'R1|s|k3f9q1|t3uwow|hhxn|张三|20230101|一班|13800001111'
+];
+qrSamples.forEach((text) => {
+  const code = QR.encode(text);
+  check(`二维码可编码：${text.slice(0, 20)}`, Boolean(code), `${QR.byteLength(text)} 字节`);
+  if (!code) return;
+  const out = qrDecode(code);
+  check(`二维码往返解码一致：${text.slice(0, 20)}`, Boolean(out) && out.text === text, out ? out.text.slice(0, 30) : '解码失败');
+  check(`二维码掩码号与格式信息一致：v${code.version}`, Boolean(out) && out.mask === code.mask);
+});
+for (let version = 1; version <= QR.MAX_VERSION; version++) {
+  const payload = 'z'.repeat(QR.maxBytes(version));
+  const code = QR.encode(payload);
+  check(`二维码 v${version} 恰好装满仍可往返`, Boolean(code) && code.version === version && qrDecode(code)?.text === payload);
+}
+check('二维码超长返回 null 而不是截断', QR.encode('x'.repeat(QR.MAX_BYTES + 1)) === null);
+check('二维码按 UTF-8 计字节（姓名 = 6 字节）', QR.byteLength('姓名') === 6, `${QR.byteLength('姓名')}`);
+check('二维码 SVG 结构完整', /^<svg xmlns=.*viewBox="0 0 \d+ \d+".*<\/svg>$/.test(QR.svg('HELLO') || ''));
+check('无 canvas 环境下 pngDataUrl 返回 null 而不是抛错', QR.pngDataUrl('HELLO') === null);
+
+/* ── 10d. 参与者信息收集：字段预设、表单码、链接容量与降级、回执码、队列折叠、去重与导出 ── */
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+const SG = window.WB.signup;
+check('参与者模块已导出（fresh / linkFor / mergeEvents / toCsv）',
+  typeof SG?.fresh === 'function' && typeof SG?.linkFor === 'function'
+  && typeof SG?.mergeEvents === 'function' && typeof SG?.toCsv === 'function');
+check('参与者视图已注册且带上限常量', Boolean(window.WB.views.signup?.render) && SG.MAX_FIELDS === 12);
+check('四套字段预设齐全', SG.PRESETS.map((item) => item.id).join('|') === 'minimal|signup|checkin|feedback',
+  SG.PRESETS.map((item) => item.id).join('|'));
+check('示例项目自带参与者收集演示数据',
+  store.state.signup.enabled && store.state.signup.records.length >= 4,
+  JSON.stringify({ enabled: store.state.signup.enabled, records: store.state.signup.records.length }));
+const sgSampleTally = SG.stats(store.state.signup);
+check('示例项目的参与者数据含签到与重复报名',
+  sgSampleTally.checkins >= 2 && sgSampleTally.dupeValues >= 1,
+  JSON.stringify({ checkins: sgSampleTally.checkins, dupes: sgSampleTally.dupeValues }));
+check('参与者信息随项目包往返', (() => {
+  const pack = store.exportBundle();
+  const before = JSON.stringify(pack.signup);
+  store.importBundle(JSON.parse(JSON.stringify(pack)));
+  return JSON.stringify(store.state.signup) === before && store.state.signup.records.length >= 4;
+})());
+
+const sgMin = SG.fresh({ preset: 'minimal', enabled: true });
+check('最小信息预设 = 5 个字段', sgMin.fields.length === 5, `${sgMin.fields.length}`);
+check('最小信息预设的必填 = 姓名 / 学号 / 手机',
+  sgMin.fields.filter((field) => field.required).map((field) => field.label).join('/') === '姓名/学号/手机');
+check('预设的去重字段指向学号', SG.fieldByLabel(sgMin, '学号')?.id === sgMin.keyField);
+check('字段可增删与排序', (() => {
+  const probe = SG.fresh({ preset: 'minimal' });
+  SG.addField(probe, { label: '年级' });
+  const okAdd = probe.fields.length === 6 && probe.fields[5].label === '年级';
+  const okMove = SG.moveField(probe, 5, -1) && probe.fields[4].label === '年级' && probe.preset === 'custom';
+  const okRemove = SG.removeField(probe, 4) && probe.fields.length === 5;
+  return okAdd && okMove && okRemove;
+})());
+check('字段数量超出上限时拒绝新增', (() => {
+  const probe = SG.fresh({ preset: 'minimal' });
+  while (SG.addField(probe, { label: '更多' })) { /* 填到上限 */ }
+  return probe.fields.length === SG.MAX_FIELDS && SG.addField(probe, { label: '过量' }) === null;
+})());
+
+const sgCode = SG.packSchema(sgMin);
+check('表单码带版本前缀', sgCode.startsWith('S1|'), sgCode);
+check('表单码用 * 标记去重字段（省字节）', sgCode.includes('学号*,1'), sgCode);
+check('表单码往返：字段名与顺序', SG.unpackSchema(sgCode)?.fields.map((field) => field.label).join('/') === '姓名/学号/班级/手机/备注');
+check('表单码往返：类型与必填',
+  SG.unpackSchema(sgCode)?.fields.map((field) => field.type).join('/') === 'text/text/text/phone/textarea'
+  && SG.unpackSchema(sgCode)?.fields.filter((field) => field.required).length === 3);
+check('表单码往返：去重字段', SG.fieldByLabel(SG.unpackSchema(sgCode), '学号')?.id === SG.unpackSchema(sgCode).keyField);
+check('表单码往返：选项按 / 分隔',
+  (() => {
+    const probe = SG.fresh({ preset: 'signup' });
+    const back = SG.unpackSchema(SG.packSchema(probe));
+    const field = back.fields.find((item) => item.label === '报名项目');
+    return Boolean(field) && field.options.join('/') === '主舞台/互动展位/志愿服务/观众';
+  })());
+check('base64url 与百分号编码的表单码都能解',
+  Boolean(SG.unpackSchema(SG.encodeBase64Url(sgCode))) && Boolean(SG.unpackSchema(encodeURIComponent(SG.encodeBase64Url(sgCode)))));
+check('缺版本前缀 / 无关文字判为无效表单码',
+  SG.unpackSchema('姓名,1;学号,1') === null && SG.unpackSchema('不太像表单码') === null && SG.unpackSchema('') === null);
+check('表单指纹随字段结构变化', SG.fingerprint(sgMin) !== SG.fingerprint(SG.fresh({ preset: 'feedback' }))
+  && /^[0-9a-z]{4}$/.test(SG.fingerprint(sgMin)));
+
+const sgLink = SG.linkFor(sgMin, 'proj-demo', 'http://127.0.0.1:4175');
+check('最小预设的链接装得进二维码（含表单定义）',
+  sgLink.fits && sgLink.level === 'full' && sgLink.bytes <= sgLink.limit, `${sgLink.bytes}/${sgLink.limit}`);
+check('链接含项目号与表单码', sgLink.url.includes('p=proj-demo') && sgLink.url.includes('&d='));
+check('链接真的能编成二维码', Boolean(QR.encode(sgLink.url)));
+check('填写页地址固定为 signup.html', SG.pageUrl('http://127.0.0.1:4175/').endsWith('/signup.html'));
+check('填写页地址容忍三种写法，不会拼成 signup.html/signup.html', (() => {
+  const forms = ['http://h:1', 'http://h:1/', 'http://h:1/signup.html'];
+  const urls = forms.map((base) => SG.pageUrl(base));
+  return urls[0] === 'http://h:1/signup.html' && urls[1] === urls[0] && urls[2] === urls[0]
+    && SG.pageUrl('https://h/demo2/') === 'https://h/demo2/signup.html'
+    && SG.pageUrl('https://h/demo2/signup.html') === 'https://h/demo2/signup.html';
+})());
+check('访问地址留空就跟着当前网址走（换端口 / 静态托管子目录都不用改）', (() => {
+  globalThis.location = { origin: 'https://me.pages.dev', pathname: '/demo2/index.html' };
+  try { return SG.pageUrl('') === 'https://me.pages.dev/demo2/signup.html'; }
+  finally { delete globalThis.location; }
+})());
+check('示例项目不带写死的访问地址（本机 / 局域网 / 静态托管都能直接生成二维码）',
+  sample.signup.base === '' && SG.normalise(sample.signup).base === '');
+check('自定义标题下二维码会走降级档位', (() => {
+  const heavy = SG.fresh({ preset: 'signup', enabled: true, title: '诗韵秋兴 · 雅集启翔参与者信息登记表', note: '请如实填写，仅用于本次活动签到与必要联系，活动结束后删除。' });
+  const link = SG.linkFor(heavy, 'proj-demo', 'http://127.0.0.1:4175');
+  return !link.fits ? link.level === 'none' && Boolean(SG.unpackSchema(link.code)) : QR.fits(link.url);
+})());
+
+const sgEvent = { kind: 'submit', id: 'r1a2b3', at: 1760000000000, h: SG.fingerprint(sgMin), values: ['张三', '20230101', '一班', '13800001111', '带竖线|的备注'] };
+const sgReceipt = SG.packReceipt(sgEvent);
+check('回执码以 R1 开头且可解析', sgReceipt.startsWith('R1|') && SG.parseReceipt(sgReceipt)?.id === 'r1a2b3');
+check('回执码保留秒级时间', Math.abs(SG.parseReceipt(sgReceipt).at - 1760000000000) <= 999, `${SG.parseReceipt(sgReceipt).at}`);
+check('回执码转义竖线后仍逐字还原',
+  SG.parseReceipt(sgReceipt).values.join('|') === sgEvent.values.join('|'), SG.parseReceipt(sgReceipt).values.join('|'));
+check('坏回执码返回 null', SG.parseReceipt('hello world') === null && SG.parseReceipt('') === null);
+const sgMerged = SG.mergeEvents(sgMin, [sgReceipt]);
+check('折入一条提交并按字段 id 落库',
+  sgMerged.added === 1 && sgMin.records.length === 1 && sgMin.records[0].values[sgMin.fields[0].id] === '张三');
+check('重复导入同一条不会翻倍', (() => {
+  const again = SG.mergeEvents(sgMin, [sgReceipt]);
+  return again.added === 0 && again.updated === 1 && sgMin.records.length === 1;
+})());
+check('签到事件落到对应记录', SG.mergeEvents(sgMin, [{ kind: 'checkin', id: 'r1a2b3', at: 1760003600000 }]).checkin === 1
+  && sgMin.records[0].checkinAt === 1760003600000);
+check('找不到记录的签到被忽略', (() => {
+  const result = SG.mergeEvents(sgMin, [{ kind: 'checkin', id: 'nope', at: Date.now() }]);
+  return result.ignored === 1 && result.checkin === 0;
+})());
+check('现场补登与勾选签到可用',
+  (() => {
+    const probe = SG.fresh({ preset: 'minimal', enabled: true });
+    const record = SG.addRecord(probe, ['李四', '20230102', '二班', '13800002222', ''], 'manual');
+    const okToggle = SG.toggleCheckin(probe, record.id);
+    return probe.records.length === 1 && record.source === 'manual' && okToggle && probe.records[0].checkinAt > 0;
+  })());
+check('删除记录可用', (() => {
+  const probe = SG.fresh({ preset: 'minimal', enabled: true });
+  const record = SG.addRecord(probe, ['王五', '20230103', '', '', '']);
+  return SG.removeRecord(probe, record.id) && probe.records.length === 0;
+})());
+
+/* 队列：同源实时同步靠 append-only，折叠按记录 id 幂等 */
+const sgQueueMemory = new Map();
+const sgQueueStorage = {
+  getItem: (key) => (sgQueueMemory.has(key) ? sgQueueMemory.get(key) : null),
+  setItem: (key, value) => sgQueueMemory.set(key, String(value)),
+  removeItem: (key) => sgQueueMemory.delete(key)
+};
+const sgSecond = SG.packReceipt({ kind: 'submit', id: 'r9z', at: 1760000100000, h: SG.fingerprint(sgMin), values: ['李四', '20230102', '二班', '13800002222', ''] });
+SG.appendToQueue('proj-q', sgReceipt, sgQueueStorage);
+SG.appendToQueue('proj-q', sgSecond, sgQueueStorage);
+check('队列按顺序累积', SG.readQueue('proj-q', sgQueueStorage).length === 2);
+const sgBoard = SG.fresh({ preset: 'minimal', enabled: true });
+const sgSync1 = SG.syncFromQueue(sgBoard, 'proj-q', sgQueueStorage);
+check('首次同步折入 2 条并记录水位',
+  sgSync1.added === 2 && sgBoard.records.length === 2 && sgBoard.applied === 2, JSON.stringify(sgSync1));
+const sgSync2 = SG.syncFromQueue(sgBoard, 'proj-q', sgQueueStorage);
+check('再次同步不重复折入', sgSync2.added === 0 && sgSync2.pending === 0 && sgBoard.records.length === 2);
+check('清空队列后水位归零可重新同步',
+  SG.clearQueue('proj-q', sgQueueStorage) && SG.readQueue('proj-q', sgQueueStorage).length === 0);
+
+/* 统计、去重与导出 */
+check('统计口径：总数 / 签到 / 完整率',
+  SG.stats(sgBoard).total === 2 && SG.stats(sgBoard).checkins === 0 && SG.stats(sgBoard).complete === 100,
+  JSON.stringify(SG.stats(sgBoard)));
+check('按去重字段识别重复报名', (() => {
+  const probe = SG.fresh({ preset: 'minimal', enabled: true });
+  SG.addRecord(probe, ['王五', '20230101', '一班', '', '']);
+  SG.addRecord(probe, ['赵六', '20230101', '二班', '', '']);
+  return SG.stats(probe).dupeValues === 1 && SG.dupeValues(probe).has('20230101') && SG.stats(probe).dupeRecords === 2;
+})());
+check('CSV 导出含表头与全部记录', (() => {
+  const csv = SG.toCsv(sgBoard).split('\r\n');
+  return csv.length === 3 && csv[0].startsWith('序号,提交时间,来源,姓名,学号,班级,手机,备注');
+})());
+check('Markdown 导出是管道表格', SG.toMarkdown(sgBoard).split('\n')[1].includes('---'));
+check('CSV 单元格里的逗号与引号被正确转义',
+  SG.toCsv(sgMin).includes('"含逗号,的备注"') === false && SG.toCsv(sgMin).includes('带竖线'));
+check('CSV 导入：带表头按表头映射',
+  (() => {
+    const probe = SG.fresh({ preset: 'minimal', enabled: true });
+    const result = SG.parseCsv(probe, '姓名,学号,班级,手机\n孙七,20230103,三班,13800003333\n周八,20230104,四班,13800004444\n');
+    return result.added === 2 && probe.records[0].values[probe.fields[0].id] === '孙七'
+      && probe.records[0].values[probe.fields[3].id] === '13800003333';
+  })());
+check('CSV 导入：无表头按列顺序读入',
+  (() => {
+    const probe = SG.fresh({ preset: 'minimal', enabled: true });
+    return SG.parseCsv(probe, '吴九,20230105,五班,13800005555\n').added === 1
+      && probe.records[0].values[probe.fields[1].id] === '20230105';
+  })());
+check('AI 上下文带真实份数、字段定义与样例记录', (() => {
+  const context = SG.contextFor(sgBoard);
+  return context.已收到份数 === 2 && context.字段定义.length === 5 && context.记录样例.length === 2;
+})());
+check('未启用时不向 AI 暴露参与者信息', SG.contextFor({ enabled: false }) === '未启用');
+check('表单结构变了会给记录打标记', (() => {
+  const probe = SG.fresh({ preset: 'minimal', enabled: true });
+  probe.fields = probe.fields.slice(0, 3);
+  SG.mergeEvents(probe, [sgReceipt]);
+  return probe.records[0].schemaChanged === true;
+})());
+check('同源存储的表单可读回（短链接也能打开正式表单）', (() => {
+  SG.storeForm(sgMin, 'proj-q', sgQueueStorage);
+  return SG.readStoredForm('proj-q', sgQueueStorage)?.fields.map((field) => field.label).join('/') === '姓名/学号/班级/手机/备注';
+})());
+check('链接没带项目号时，靠本机唯一那份已存表单定位项目（多份就不猜）', (() => {
+  const memory = new Map();
+  const store = {
+    get length() { return memory.size; },
+    key: (index) => [...memory.keys()][index] ?? null,
+    getItem: (key) => (memory.has(key) ? memory.get(key) : null),
+    setItem: (key, value) => memory.set(key, String(value)),
+    removeItem: (key) => memory.delete(key)
+  };
+  const none = SG.soleStoredProjectId(store);
+  store.setItem(SG.formKey('proj-solo'), '{}');
+  const one = SG.soleStoredProjectId(store);
+  store.setItem('demo2-signup-queue-proj-solo', '[]');
+  const withQueue = SG.soleStoredProjectId(store);
+  store.setItem(SG.formKey('proj-other'), '{}');
+  const two = SG.soleStoredProjectId(store);
+  return none === '' && one === 'proj-solo' && withQueue === 'proj-solo' && two === '';
+})());
+
+/* 与编排层接线：路线图可选步骤、材料上下文、视图渲染 */
+check('填写路线图有「可选」的参与者步骤且目标合法',
+  window.WB.guide.STEPS.some((step) => step.id === 'signup' && step.optional && VIEW_ID_SET.has(step.target.view)));
+check('材料生成的上下文里带上了参与者信息', (() => {
+  const context = window.WB.views.material.fillContext('attendance');
+  return context && context.参与者信息收集 && context.参与者信息收集.已收到份数 >= 4;
+})());
+store.state.signup = SG.fresh({ preset: 'minimal', enabled: true });
+window.WB.views.signup.render();
+check('参与者视图能渲染出字段设计器与开启入口', document.getElementById('signupBody').innerHTML.includes('data-signup-preset'));
+/* 示例项目的访问地址留空，得先给个 location 才会按「当前网址」推出链接。
+   顺带把 122 字节这个边界钉住：刚好够时带项目号，再长一点就只剩表单定义 + 界面提示。 */
+check('项目号装得下时二维码照常显示（示例项目实测正好卡在 122 字节）', (() => {
+  globalThis.location = { origin: 'http://127.0.0.1:4175', pathname: '/index.html' };
+  try {
+    store.state.signup = SG.normalise(sample.signup);
+    window.WB.views.signup.render();
+    const body = document.getElementById('signupBody').innerHTML;
+    const link = SG.linkFor(store.state.signup, store.state.activeId, store.state.signup.base);
+    return link.fits && link.withId === true && body.includes('signup-qr') && !body.includes('放不下项目号');
+  } finally {
+    delete globalThis.location;
+  }
+})(), '示例项目的表单 + 项目号超出了 122 字节');
+check('链接放不下项目号时，界面写明手机端要走回执码', (() => {
+  globalThis.location = { origin: 'http://127.0.0.1:4175', pathname: '/index.html' };
+  const savedId = store.state.activeId;
+  try {
+    store.state.signup = SG.normalise(sample.signup);
+    store.state.activeId = 'proj-' + 'x'.repeat(24);
+    window.WB.views.signup.render();
+    const body = document.getElementById('signupBody').innerHTML;
+    const link = SG.linkFor(store.state.signup, store.state.activeId, store.state.signup.base);
+    return link.fits && link.withId === false && body.includes('放不下项目号') && body.includes('回执码');
+  } finally {
+    store.state.activeId = savedId;
+    delete globalThis.location;
+  }
+})());
+store.state.signup = SG.fresh({ preset: 'minimal', enabled: false });
+window.WB.views.signup.render();
+check('关闭状态只显示说明不显示字段表',
+  !document.getElementById('signupBody').innerHTML.includes('data-signup-field')
+  && document.getElementById('signupBody').innerHTML.includes('data-signup-enable'));
+
+/* ── 10e. 独立填写页：渲染 → 校验 → 提交 → 签到 → 修改 → 再填一位 ──
+   这一页要能被手机单独打开，所以单独跑一遍：给它一个最小 DOM，走真实的事件路径。 */
+const pageHtml = fs.readFileSync(path.join(root, 'signup.html'), 'utf8');
+check('填写页按顺序加载 core/qr.js 与 core/signup.js',
+  /<script src="\.\/core\/qr\.js"><\/script>[\s\S]*<script src="\.\/core\/signup\.js"><\/script>/.test(pageHtml));
+const pageSrc = [...pageHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].pop()?.[1] || '';
+check('填写页内联脚本可编译', (() => {
+  try { new Function(pageSrc); return true; } catch (error) { return false; }
+})());
+function pageNode(tag = 'div', id = '') {
+  const listeners = {};
+  const classes = new Set();
+  return {
+    tagName: tag, id, value: '', textContent: '', innerHTML: '', checked: false, title: '',
+    dataset: {}, style: {}, parentNode: null,
+    classList: {
+      add: (name) => classes.add(name), remove: (name) => classes.delete(name),
+      contains: (name) => classes.has(name), toggle: (name, force) => (force ? classes.add(name) : classes.delete(name))
+    },
+    addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
+    emit: (type, event) => { for (const fn of [...(listeners[type] || [])]) fn(event || { preventDefault() {} }); },
+    hasListener: (type) => Boolean((listeners[type] || []).length),
+    scrollIntoView: () => {}, select: () => {}, remove: () => {},
+    setAttribute: (key, value) => { if (key === 'title') { this.title = value; } },
+    appendChild: () => {}, insertBefore: () => {},
+    querySelector: () => null, querySelectorAll: () => []
+  };
+}
+function pageDocument() {
+  const byId = new Map();
+  const app = pageNode('div', 'app');
+  byId.set('app', app);
+  return {
+    app,
+    getElementById: (id) => { if (!byId.has(id)) byId.set(id, pageNode('div', id)); return byId.get(id); },
+    createElement: (tag) => pageNode(tag),
+    querySelector: () => null, querySelectorAll: () => [],
+    head: pageNode('head'), body: pageNode('body'), documentElement: pageNode('html')
+  };
+}
+/* 把表单字段接到可控的假节点上，便于注入填写值 */
+const pageFields = [];
+function attachPageFields(doc) {
+  doc.app.querySelector = (selector) => {
+    const field = /^\[data-field="(\d+)"\]$/.exec(selector);
+    if (field) {
+      const index = Number(field[1]);
+      const node = doc.getElementById(`pfield-${index}`);
+      node.value = pageFields[index] == null ? '' : pageFields[index];
+      return node;
+    }
+    const row = /^\[data-row="(\d+)"\]$/.exec(selector);
+    if (row) return doc.getElementById(`prow-${row[1]}`);
+    const err = /^\[data-err="(\d+)"\]$/.exec(selector);
+    if (err) return doc.getElementById(`perr-${err[1]}`);
+    return null;
+  };
+  doc.app.querySelectorAll = (selector) => {
+    if (selector === '.field' || selector === '.field.is-bad') return [];
+    if (selector === '.err') return pageFields.map((_, index) => doc.getElementById(`perr-${index}`));
+    return [];
+  };
+}
+const pageMemory = new Map();
+const pageStorage = {
+  get length() { return pageMemory.size; },
+  key: (index) => [...pageMemory.keys()][index] ?? null,
+  getItem: (key) => (pageMemory.has(key) ? pageMemory.get(key) : null),
+  setItem: (key, value) => pageMemory.set(key, String(value)),
+  removeItem: (key) => pageMemory.delete(key)
+};
+const realDocument = globalThis.document;
+const realLocalStorage = globalThis.localStorage;
+globalThis.localStorage = pageStorage;
+globalThis.alert = () => {};
+let pageDoc = null;
+const runPage = (hash) => {
+  pageDoc = pageDocument();
+  globalThis.document = pageDoc;
+  globalThis.location = { hash };
+  pageFields.length = 0;
+  new Function(pageSrc)();
+  attachPageFields(pageDoc);
+  return pageDoc;
+};
+const pageLink = SG.linkFor(SG.fresh({ preset: 'minimal', enabled: true }), 'proj-page', 'http://127.0.0.1:4175');
+let page = runPage(`#${pageLink.url.split('#')[1]}`);
+check('填写页按链接渲染出 5 个字段',
+  new Set([...page.app.innerHTML.matchAll(/data-field="(\d+)"/g)].map((match) => match[1])).size === 5);
+check('填写页字段名与必填星号来自链接',
+  page.app.innerHTML.includes('姓名') && (page.app.innerHTML.match(/<b>\*<\/b>/g) || []).length === 3);
+check('填写页说明表单来源', page.app.innerHTML.includes('表单来自二维码/链接'));
+check('填写页有表单码粘贴入口', page.app.innerHTML.includes('id="formCode"'));
+pageFields.push('', '', '', '', '');
+page.getElementById('signupForm').emit('submit');
+check('必填缺失时拦住并提示', page.getElementById('perr-0').textContent.includes('需要填写')
+  && page.getElementById('prow-0').classList.contains('is-bad') && page.app.innerHTML.includes('id="signupForm"'));
+check('必填缺失时不写队列', SG.readQueue('proj-page').length === 0);
+pageFields.splice(0, pageFields.length, '张三', '20230101', '一班', '123', '');
+page.getElementById('signupForm').emit('submit');
+check('手机号格式校验生效', page.getElementById('perr-3').textContent.includes('手机号'));
+pageFields.splice(0, pageFields.length, '张三', '20230101', '一班', '13800001111', '帮我留个前排');
+page.getElementById('signupForm').emit('submit');
+const pageQueue = SG.readQueue('proj-page');
+check('提交写入队列并进入成功页', pageQueue.length === 1 && page.app.innerHTML.includes('提交成功'));
+check('成功页展示回执码与二维码', page.app.innerHTML.includes('R1|') && page.app.innerHTML.includes('<svg'));
+check('回执码内容与填写值一致', SG.parseReceipt(pageQueue[0])?.values[0] === '张三' && SG.parseReceipt(pageQueue[0])?.values[4] === '帮我留个前排');
+check('回执码带当前表单指纹', SG.parseReceipt(pageQueue[0])?.h === SG.fingerprint(SG.fresh({ preset: 'minimal', enabled: true })));
+check('签到按钮已接线', page.getElementById('checkin').hasListener('click'));
+page.getElementById('checkin').emit('click');
+check('签到追加一条签到事件', SG.readQueue('proj-page').length === 2
+  && SG.parseReceipt(SG.readQueue('proj-page')[1])?.kind === 'checkin'
+  && page.app.innerHTML.includes('已提交并签到'));
+const pageBoard = SG.fresh({ preset: 'minimal', enabled: true });
+const pageSync = SG.syncFromQueue(pageBoard, 'proj-page', pageStorage);
+check('工作台侧折叠出 1 条记录 + 1 次签到',
+  pageSync.added === 1 && pageSync.checkin === 1 && pageBoard.records.length === 1 && pageBoard.records[0].checkinAt > 0,
+  JSON.stringify(pageSync));
+check('折叠后的来源标记为扫码填写', pageBoard.records[0].source === 'scan' && !pageBoard.records[0].schemaChanged);
+page = runPage(`#${pageLink.url.split('#')[1]}`);
+check('重新打开链接显示「已提交」并可修改', page.app.innerHTML.includes('已提交') && page.getElementById('editMine').hasListener('click'));
+page.getElementById('editMine').emit('click');
+check('点「修改我的信息」回到带原值的表单', page.app.innerHTML.includes('id="signupForm"'));
+pageFields.splice(0, pageFields.length, '张三', '20230101', '一班', '13800002222', '换了号码');
+page.getElementById('signupForm').emit('submit');
+const pageBoard2 = SG.fresh({ preset: 'minimal', enabled: true });
+SG.syncFromQueue(pageBoard2, 'proj-page', pageStorage);
+check('修改走同一条记录（号码更新且不新增）',
+  pageBoard2.records.length === 1 && pageBoard2.records[0].values[pageBoard2.fields[3].id] === '13800002222',
+  JSON.stringify(pageBoard2.records.map((record) => record.values)));
+page.getElementById('another').emit('click');
+check('「再填一位」回到空白表单', page.app.innerHTML.includes('id="signupForm"'));
+pageFields.splice(0, pageFields.length, '李四', '20230102', '二班', '13800003333', '');
+page.getElementById('signupForm').emit('submit');
+const pageBoard3 = SG.fresh({ preset: 'minimal', enabled: true });
+SG.syncFromQueue(pageBoard3, 'proj-page', pageStorage);
+check('「再填一位」落成第 2 条独立记录',
+  pageBoard3.records.length === 2
+  && pageBoard3.records.map((record) => record.values[pageBoard3.fields[0].id]).join('/') === '张三/李四',
+  pageBoard3.records.map((record) => record.values[pageBoard3.fields[0].id]).join('/'));
+page = runPage('#p=proj-page2');
+check('链接里没有表单定义时退回通用表单并说明原因',
+  page.app.innerHTML.includes('通用最小表单') && page.app.innerHTML.includes('data-field="0"'));
+page.getElementById('formCode').value = SG.packSchema(SG.fresh({ preset: 'checkin' }));
+page.getElementById('applyCode').emit('click');
+check('粘贴表单码后换成签到表单',
+  page.app.innerHTML.includes('到场方式') && page.app.innerHTML.includes('表单来自粘贴的表单码'));
+page = runPage('#d=不太像表单码');
+check('坏表单码退回通用表单而不是空白页', page.app.innerHTML.includes('通用最小表单'));
+
+/* 表单太长放不下 p= 时（链接只有 d=）：本机唯一那份已存表单决定项目号，
+   提交要落回项目队列，而不是无人认领的 default 桶 */
+pageStorage.setItem(SG.formKey('proj-solo'),
+  JSON.stringify({ at: Date.now(), code: SG.packSchema(SG.fresh({ preset: 'minimal', enabled: true }), 'full') }));
+const pageFormOnly = SG.packSchema(SG.fresh({ preset: 'minimal', enabled: true }), 'full');
+page = runPage(`#d=${SG.encodeBase64Url(pageFormOnly)}`);
+check('链接只带表单定义时，靠本机已存表单认出项目并按该项目渲染',
+  page.app.innerHTML.includes('id="signupForm"') && !page.app.innerHTML.includes('通用最小表单'));
+pageFields.splice(0, pageFields.length, '周八', '20230108', '八班', '13800008888', '');
+page.getElementById('signupForm').emit('submit');
+check('没带项目号的链接，提交仍落回项目队列（不发到 default 桶）',
+  SG.readQueue('proj-solo', pageStorage).length === 1 && SG.readQueue('default', pageStorage).length === 0,
+  `proj-solo=${SG.readQueue('proj-solo', pageStorage).length} default=${SG.readQueue('default', pageStorage).length}`);
+check('同源提交时成功页仍说「组织者会实时看到」',
+  page.app.innerHTML.includes('组织者会实时看到你的信息'));
+pageStorage.removeItem(SG.formKey('proj-solo'));
+/* ── 10f. 公网 / 局域网开放的安全边界（server.mjs 契约） ──
+   默认只听回环；DEMO2_HOST=0.0.0.0 或走 cloudflared 隧道时，非本机请求只能读填写页
+   那一小块、只能提交一条回执码；工作台页面与 AI 接口（里面有 API Key）必须始终只
+   允许本机——这几条是「手机扫码填写」敢开出去的前提。 */
+const serverSrc = fs.readFileSync(path.join(root, 'server.mjs'), 'utf8');
+const remoteGetList = (serverSrc.match(/const REMOTE_GET = new Set\(\[([^\]]*)\]\);/ ) || [])[1] || '';
+const remotePostList = (serverSrc.match(/const REMOTE_POST = new Set\(\[([^\]]*)\]\);/ ) || [])[1] || '';
+check('server.mjs 默认仍只监听回环地址',
+  serverSrc.includes("process.env.DEMO2_HOST || '127.0.0.1'") && serverSrc.includes('server.listen(port, host,'));
+check('非本机只能读：填写页 + 它加载的两个脚本 + 按短码取表单',
+  ['/signup.html', '/core/qr.js', '/core/signup.js', '/api/signup/form'].every((item) => remoteGetList.includes(item)),
+  remoteGetList);
+check('非本机只能写一条：提交回执码（登记短码与拉增量只对本机开放）',
+  remotePostList.includes('/api/signup/submit') && !remotePostList.includes('/api/signup/link')
+  && !remotePostList.includes('/api/signup/queue') && !remoteGetList.includes('/api/signup/queue'), remotePostList);
+check('AI 接口 / 工作台页面 / 生成图片都不在放行名单里',
+  ['/api/structure', '/api/image', '/api/template', '/api/health', '/app.js', '/index.html', '/styles.css', '/generated/']
+    .every((item) => !remoteGetList.includes(item) && !remotePostList.includes(item)));
+check('隧道 / 反向代理的请求头会被当成「非本机」（否则工作台与 AI 会被一起暴露）',
+  ['cf-connecting-ip', 'x-forwarded-for', 'x-real-ip'].every((header) => serverSrc.includes("req.headers['" + header + "']"))
+  && serverSrc.includes('const remote = Boolean(forwarded) || !isLoopback(req.socket?.remoteAddress);'));
+check('拦截发生在 /api 与静态分发之前', (() => {
+  const guard = serverSrc.indexOf('const remote = Boolean(forwarded)');
+  return guard > 0
+    && guard < serverSrc.indexOf("url.pathname === '/api/health'")
+    && guard < serverSrc.indexOf('const file = path.resolve(here, requested);');
+})());
+check('提交接口有体积上限、限流与总量上限，且只认 R1| 开头的回执码',
+  serverSrc.includes('readBuffer(req, JOIN_BODY_LIMIT)') && serverSrc.includes('submitAllowed(clientIp)')
+  && serverSrc.includes('JOIN_MAX_RECORDS') && serverSrc.includes("receipt.startsWith('R1|')")
+  && serverSrc.includes('const known = lines.includes(receipt);'));
+check('启动日志打印隧道命令与网卡名',
+  serverSrc.includes('cloudflared tunnel --url http://127.0.0.1:') && serverSrc.includes('lanAddresses().map(')
+  && serverSrc.includes('item.name'));
+check('填写页只引用白名单里的那两个脚本（白名单才够用）', (() => {
+  const page = fs.readFileSync(path.join(root, 'signup.html'), 'utf8');
+  const refs = [...page.matchAll(/(?:src|href)="\.\/([^"]+)"/g)].map((match) => match[1]);
+  return refs.length === 2 && refs.every((ref) => ['core/qr.js', 'core/signup.js'].includes(ref));
+})());
+check('填写页直传：取表单走 /api/signup/form，提交走 /api/signup/submit，失败仍有回执码兜底', (() => {
+  const page = fs.readFileSync(path.join(root, 'signup.html'), 'utf8');
+  return page.includes("'/api/signup/submit'") && page.includes('/api/signup/form?p=')
+    && page.includes('pushAndReport') && page.includes('loadRemoteSchema');
+})());
+
+/* ── 10g. 静态托管打包：清单与页面引用一致，禁品一律拦下 ──
+   打包脚本是「发布」那道门：页面加载的每个文件都必须在清单里，
+   而 .env / server.mjs / tools / docs 一个都不许被带出去。 */
+const packSrc = fs.readFileSync(path.join(root, 'tools/pack-static.mjs'), 'utf8');
+const packArray = (name) => {
+  const match = packSrc.match(new RegExp('const ' + name + ' = \\[([^\\]]*)\\];'));
+  return match ? JSON.parse('[' + match[1].replace(/'/g, '"') + ']') : null;
+};
+const PACK_CORE = packArray('CORE');
+const PACK_VIEWS = packArray('VIEWS');
+const packPagesMatch = packSrc.match(/const PAGES = \[([\s\S]*?)\r?\n\];/);
+const PACK = packPagesMatch
+  ? new Function('CORE', 'VIEWS', 'return [' + packPagesMatch[1] + '];')(PACK_CORE, PACK_VIEWS)
+  : null;
+check('打包脚本的发布清单能解析出来（CORE / VIEWS / PAGES 三段）',
+  Array.isArray(PACK_CORE) && Array.isArray(PACK_VIEWS) && Array.isArray(PACK) && PACK.length >= 30,
+  'core=' + PACK_CORE?.length + ' views=' + PACK_VIEWS?.length + ' pages=' + PACK?.length);
+const packRefsOf = (file) => [...fs.readFileSync(path.join(root, file), 'utf8')
+  .matchAll(/(?:src|href)="\.\/([^"]+)"/g)].map((match) => match[1]);
+const packNeeds = [...new Set([...packRefsOf('index.html'), ...packRefsOf('signup.html')])];
+const packMissing = PACK ? packNeeds.filter((ref) => !PACK.includes(ref)) : packNeeds;
+check('index.html / signup.html 加载的每个文件都在发布清单里',
+  packMissing.length === 0, '缺 ' + packMissing.join('、'));
+check('脚本里 fetch 的示例数据也在发布清单里（发布后「试试示例项目」还能用）',
+  !!PACK && ['samples/示例项目-校园科技文化节.json'].every((rel) => PACK.includes(rel)));
+const packAbsent = PACK ? PACK.filter((rel) => !fs.existsSync(path.join(root, rel))) : ['清单没解析出来'];
+check('发布清单里的文件都真实存在', packAbsent.length === 0, packAbsent.join('、'));
+check('发布清单不含 .env / server.mjs / tools / docs / generated',
+  !!PACK && PACK.every((rel) => !/\.env|server\.mjs|^tools\/|^docs\/|^generated\//.test(rel)));
+check('打包脚本自带禁品名单与源码目录黑名单',
+  packSrc.includes("'.env', 'server.mjs', 'tools/', 'docs/'")
+  && packSrc.includes("'generated/'") && packSrc.includes('const SOURCE_DIRS = '));
+check('打包脚本拒绝把产物写回项目本身、源码子目录或项目上级',
+  packSrc.includes('输出目录不能就是 demo2 本身')
+  && packSrc.includes('输出目录不要放在') && packSrc.includes('输出目录不能是 demo2 的上级目录'));
+check('打包脚本默认写进 dist/，逐项清掉上次的残留，并把「产物与清单不一致」当失败',
+  packSrc.includes("valueOf('--out') || 'dist'") && packSrc.includes('fs.unlinkSync(target)')
+  && packSrc.includes('fs.rmdirSync(target)') && packSrc.includes('产物里混进了清单之外的文件'));
+check('打包脚本拷完会复查页面引用，并声明不含 .env',
+  packSrc.includes('产物里都在') && packSrc.includes('不含 .env、server.mjs、tools/、docs/'));
+
+/* ── 10h. 手机直传：短码链接 + 按游标合并 ──
+   隧道域名（xxx.trycloudflare.com）比局域网 IP 长，老写法把表单定义塞进二维码会装不下；
+   短码模式只带 4 位码，表单定义由本机服务按码提供。手机提交的回执码按行落盘，
+   工作台按 since 游标拉回来，折进表格走的还是 mergeEvents（按记录 id 幂等）。 */
+/* 页面测试到此为止，先把浏览器环境换回来：下面第一处 await 会让事件循环跑起来，
+   boot 时那次「AI 在不在」的续跑会顺手重绘任务视图，还拿着页面用的精简 DOM 就会找不到 #wbsSummary。 */
+globalThis.document = realDocument;
+globalThis.localStorage = realLocalStorage;
+globalThis.location = { origin: 'http://127.0.0.1:4175', pathname: '/index.html' };
+const joinSignup = SG.normalise(sample.signup);
+const tunnelBase = 'https://calm-sunset-a1b2.trycloudflare.com';
+const shortLink = SG.linkFor(joinSignup, 'k7f2', tunnelBase, { short: true });
+check('短码模式：二维码只带 4 位短码，长隧道域名也装得下',
+  shortLink.fits === true && shortLink.level === 'short' && shortLink.url.endsWith('#p=k7f2') && shortLink.url.indexOf('d=') < 0,
+  shortLink.bytes + '/' + shortLink.limit + ' ' + shortLink.url);
+/* 老写法的降级梯子：链接里既要真实项目号又要表单定义，长隧道域名下塞不下，
+   只能丢掉项目号、把表单压成精简版才塞得进去——这正是短码模式要解决的问题。 */
+const plainLink = SG.linkFor(joinSignup, 'proj-m3k9x2a1-b7c2d', tunnelBase);
+check('同一个隧道域名下，老写法要丢掉项目号、降级表单才塞得进二维码',
+  plainLink.fits === true && plainLink.withId === false && plainLink.level !== 'full',
+  plainLink.bytes + '/' + plainLink.limit + ' ' + plainLink.level);
+check('短码登记与拉增量都挂在视图上，供工作台调用',
+  typeof window.WB.views.signup.registerLink === 'function' && typeof window.WB.views.signup.pullServer === 'function');
+
+const joinBackup = JSON.parse(JSON.stringify(store.state.signup));
+const fetchBackup = globalThis.fetch;
+store.state.signup = SG.normalise(sample.signup);
+store.state.signup.enabled = true;
+store.state.signup.linkCode = 'k7f2';
+store.state.signup.serverCursor = 0;
+const joinValues = store.state.signup.fields.map((field, index) => '填值' + (index + 1));
+const joinReceipt = SG.packReceipt({ kind: 'submit', id: 'rec-join-1', at: Date.now(), h: SG.fingerprint(store.state.signup), values: joinValues });
+let joinCalls = 0;
+let joinUrl = '';
+globalThis.fetch = async (url) => {
+  joinUrl = String(url);
+  if (joinUrl.indexOf('/api/signup/queue') >= 0) {
+    joinCalls += 1;
+    return { ok: true, json: async () => ({ ok: true, total: 1, records: [joinReceipt] }) };
+  }
+  return { ok: false, json: async () => ({}) };
+};
+const joinMerged = await window.WB.views.signup.pullServer({ render: false });
+check('手机直传：拉回来的回执码折进表格，来源标成「填写页」',
+  Boolean(joinMerged) && joinMerged.added === 1
+  && store.state.signup.records.some((record) => record.id === 'rec-join-1' && record.source === 'link'),
+  JSON.stringify(joinMerged));
+check('手机直传：请求带 project 与 since（按游标拉增量）',
+  joinUrl.indexOf('/api/signup/queue?project=') >= 0 && joinUrl.indexOf('&since=0') >= 0, joinUrl);
+check('手机直传：游标推进到服务端的 total', store.state.signup.serverCursor === 1, String(store.state.signup.serverCursor));
+await window.WB.views.signup.pullServer({ render: false });
+check('手机直传：同一条再拉一次不会翻倍（按记录 id 幂等）',
+  store.state.signup.records.filter((record) => record.id === 'rec-join-1').length === 1);
+store.state.signup.linkCode = '';
+const joinCallsBefore = joinCalls;
+const joinNone = await window.WB.views.signup.pullServer({ render: false });
+check('没登记短码时不发请求（纯静态托管那条路照旧走回执码）',
+  joinNone === null && joinCalls === joinCallsBefore, joinCalls + '/' + joinCallsBefore);
+
+/* 开启收集之后必须去登记短码，否则二维码里就没有项目号，手机提交会落进谁也看不见的桶 */
+check('视图导出了「要不要登记短码」的判断', typeof window.WB.views.signup.needRegister === 'function');
+const needCurrent = SG.normalise(sample.signup);
+needCurrent.enabled = true;
+check('还没登记过短码时要登记', window.WB.views.signup.needRegister(needCurrent) === true);
+needCurrent.linkCode = 'k7f2';
+needCurrent.linkFp = SG.fingerprint(needCurrent);
+check('登记过且表单没改时不再重复登记', window.WB.views.signup.needRegister(needCurrent) === false);
+needCurrent.linkFp = 'stale';
+check('表单改过要重新登记', window.WB.views.signup.needRegister(needCurrent) === true);
+
+/* 填写页只在「知道项目号 + 表单来源可信」时才直传：否则数据会落进谁也看不见的桶 */
+const pageSrcGuard = fs.readFileSync(path.join(root, 'signup.html'), 'utf8');
+check('填写页没有项目号时不直传（不往服务端的 default 桶塞数据）',
+  pageSrcGuard.includes('const knownProject = Boolean(ownProject);')
+  && pageSrcGuard.includes('let trustedForm = false;')
+  && pageSrcGuard.includes('if (!knownProject || !trustedForm) return false;')
+  && pageSrcGuard.includes("if (!knownProject || !trustedForm) { pushed = 'fail'; render(); return; }"));
+check('服务端拒绝没有项目号的提交（不再写进看不见的 default 桶）',
+  fs.readFileSync(path.join(root, 'server.mjs'), 'utf8').includes("entry.projectId === 'default'"));
+globalThis.fetch = fetchBackup;
+store.state.signup = joinBackup;
+
+/* 浏览器环境已在 10h 开头换回，这里只清掉临时 location */
+delete globalThis.location;
 /* ── 11. 问答式补全：只问空白、只填空白、AI 不覆盖手改 ── */
 store.setUser({ name: '组织者', role: 'organizer' });
 store.importBundle(JSON.parse(JSON.stringify(bundle)));
@@ -2059,6 +2866,72 @@ check('AI 补空位：三种返回形状都能解析（数组 / values 数组 / 
   && window.WB.views.material.normaliseFillRows({ values: { a: '甲' } }, [{ id: 'a' }])[0].value === '甲'
   && window.WB.views.material.normaliseFillRows([{ id: 'a', value: { value: '甲' } }], [{ id: 'a' }])[0].value === '甲'
   && window.WB.views.material.normaliseFillRows({ values: [{ id: 'zz', value: '甲' }] }, [{ id: 'a' }]).length === 0);
+
+/* 逐格填空：一次只看一格，AI 也只问这一格。
+   R19 那份参考件只有 1 个空位，翻页与跳空格测不出来，这里单独造一份两格的参考件。 */
+const stepFixture = window.WB.ooxml.zip([
+  { name: '[Content_Types].xml', data: `${RAW_XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>` },
+  { name: 'word/document.xml', data: `${RAW_XML}<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>活动名称：</w:t></w:r></w:p><w:p><w:r><w:t>活动地点：</w:t></w:r></w:p></w:body></w:document>` }
+]);
+const stepKey = 'proposal';
+await window.WB.views.material.uploadReference(stepKey, { name: '逐格测试.docx', arrayBuffer: async () => stepFixture.slice().buffer });
+/* 清掉项目信息表，让两格都是空的，导航与「跳空格」才有确定行为 */
+const stepBasicBackup = state.project.basic;
+state.project.basic = {};
+state.fillDrafts[stepKey] = {};
+state.references[stepKey].id = 'ref-step-test';
+const stepModel = await window.WB.views.material.fillModel(stepKey);
+window.WB.views.material.toggleFillStep(stepKey);
+const stepHtml = window.WB.views.material.fillPanel(stepKey);
+const stepList = window.WB.views.material.fillStepSlots(stepKey, stepModel);
+const stepStart = window.WB.views.material.fillStepIndex(stepKey, stepList);
+check('逐格填空：切换后面板一次只显示一格',
+  window.WB.views.material.fillStepOn(stepKey) === true && stepList.length >= 2
+  && stepHtml.includes('data-fill-step-body') && !stepHtml.includes('class="fill-group"'),
+  `空位 ${stepList.length} 个`);
+check('逐格填空：标出第几格 / 共几格，并带上一格 / 下一格 / 跳空格 / 置空 / 单格 AI',
+  stepHtml.includes(`第 ${stepStart + 1} / ${stepList.length} 格`) && stepHtml.includes('data-fill-step-prev')
+  && stepHtml.includes('data-fill-step-next') && stepHtml.includes('data-fill-step-skip')
+  && stepHtml.includes('data-fill-step-blank') && stepHtml.includes('data-fill-step-ai'));
+window.WB.views.material.fillStepMove(stepKey, 1);
+check('逐格填空：下一格往后走一格',
+  window.WB.views.material.fillStepIndex(stepKey, stepList) === Math.min(stepStart + 1, stepList.length - 1));
+window.WB.views.material.fillStepMove(stepKey, -9);
+check('逐格填空：往前越界时停在第一格', window.WB.views.material.fillStepIndex(stepKey, stepList) === 0);
+const oneCalls = [];
+globalThis.fetch = async (url, options) => {
+  const body = JSON.parse(options?.body || '{}');
+  if (String(url).includes('/api/health')) return { ok: true, json: async () => ({ providers: { deepseek: true, yoshub: false } }) };
+  if (String(url).includes('/api/material')) {
+    oneCalls.push(body.input);
+    return { ok: true, json: async () => ({ data: { values: [{ id: body.input.空位[0].id, value: '单格值', basis: '任务分解' }] } }) };
+  }
+  return { ok: true, json: async () => ({}) };
+};
+await window.WB.ai.check();
+const stepFirst = stepList[0];
+const oneOk = await window.WB.views.material.aiFillOne(stepKey, stepFirst.id);
+check('逐格填空：AI 一次只问一个空位，值写回该格',
+  oneOk === true && oneCalls.length === 1 && oneCalls[0].空位.length === 1
+  && state.fillDrafts[stepKey][stepFirst.id] === '单格值');
+check('逐格填空：AI 给出的依据会记下来供界面显示',
+  window.WB.views.material.fillBasisOf(stepKey, stepFirst.id) === '任务分解');
+check('逐格填空：跳到下一个空格会跳过已填的格子',
+  window.WB.views.material.fillStepSeek(stepKey, 1) === true
+  && window.WB.views.material.fillStepIndex(stepKey, stepList) === 1);
+const stepSecond = stepList[1];
+await window.WB.views.material.aiFillOne(stepKey, stepSecond.id);
+globalThis.fetch = prevFillFetch;
+await window.WB.ai.check();
+check('逐格填空：全部填满后再跳空格会如实说没有',
+  window.WB.views.material.fillStepSeek(stepKey, 1) === false);
+window.WB.views.material.toggleFillStep(stepKey);
+check('逐格填空：再点一次回到列表视图',
+  window.WB.views.material.fillStepOn(stepKey) === false
+  && window.WB.views.material.fillPanel(stepKey).includes('class="fill-group"'));
+state.project.basic = stepBasicBackup;
+delete state.references[stepKey];
+delete state.fillDrafts[stepKey];
 
 if (cardDocBackup) state.materials[refKey] = cardDocBackup; else delete state.materials[refKey];
 delete state.references[refKey];

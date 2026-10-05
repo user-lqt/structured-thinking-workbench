@@ -18,7 +18,8 @@ window.WB = window.WB || {};
 
   /* 这些键属于「单个项目」，按项目分文件存储；其余属于全局索引。 */
   const DOC_KEYS = ['project', 'wbs', 'risks', 'riskCompliance', 'options', 'gates', 'gateMeta',
-    'materials', 'templates', 'materialTemplates', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills', 'log'];
+    'materials', 'templates', 'materialTemplates', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills',
+    'signup', 'log'];
 
   const nowIso = () => new Date().toISOString();
 
@@ -49,6 +50,8 @@ window.WB = window.WB || {};
       poster: {},
       resources: [],
       drills: [],
+      /* 参与者信息收集（可选能力）：字段定义 + 已收到的记录；关掉开关只是不显示入口，数据不丢 */
+      signup: window.WB.signup ? window.WB.signup.fresh() : { enabled: false, fields: [], records: [], applied: 0 },
       log: []
     };
   }
@@ -172,6 +175,7 @@ window.WB = window.WB || {};
     doc.poster = raw.poster && typeof raw.poster === 'object' ? raw.poster : {};
     doc.resources = Array.isArray(raw.resources) ? raw.resources.map(normaliseResource) : [];
     doc.drills = Array.isArray(raw.drills) ? raw.drills.map(normaliseDrill) : [];
+    doc.signup = window.WB.signup ? window.WB.signup.normalise(raw.signup) : doc.signup;
     doc.gates = { ...freshProjectDoc().gates, ...(raw.gates || {}) };
     doc.gateMeta = { ...freshProjectDoc().gateMeta, ...(raw.gateMeta || {}) };
     doc.log = Array.isArray(raw.log) ? raw.log : [];

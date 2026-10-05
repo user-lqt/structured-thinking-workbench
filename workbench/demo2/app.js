@@ -5,7 +5,7 @@ window.WB = window.WB || {};
   const U = window.WB.util;
   const store = window.WB.store;
   const { $, $$, escapeHtml, BASIC_FIELDS, ROLES } = U;
-  const VIEWS = ['projects', 'overview', 'manifest', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'assets', 'help'];
+  const VIEWS = ['projects', 'overview', 'manifest', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'assets', 'signup', 'help'];
 
   /* 只读放行的控件特征：筛选、分段切换、导出、打开/关闭、下载、跳转都是「看」的动作。
      其余按钮、输入框、下拉框一律视为写入，只读访客会被禁用。 */
@@ -126,6 +126,34 @@ window.WB = window.WB || {};
     $('#projectMeta').textContent = state.project
       ? `${meta || '尚未填写活动信息'} · 任务完成度 ${overall.percent}%${owner}`
       : `尚未建立项目信息表${owner}`;
+    renderGuideChip();
+  }
+
+  /* 顶栏引导按钮：任何时候都告诉你「下一步做什么」，点一下直接过去。
+     状态由 core/guide.js 从项目数据推断，与总览的「填写路线图」是同一份判断。 */
+  function renderGuideChip() {
+    const chip = $('#guideChip');
+    if (!chip) return;
+    const state = store.state;
+    if (!state.project) {
+      chip.classList.remove('is-done');
+      chip.innerHTML = '<b>引导</b> 先建项目 →';
+      chip.dataset.guideTarget = JSON.stringify({ view: 'overview' });
+      chip.title = '还没有项目：先在「项目信息表」补上活动类型、名称与日期';
+      return;
+    }
+    const guide = window.WB.guide.progress(state);
+    if (!guide.current) {
+      chip.classList.add('is-done');
+      chip.innerHTML = `<b>引导</b> ${guide.total}/${guide.total} 步已完成 ✓`;
+      chip.dataset.guideTarget = JSON.stringify({ view: 'overview' });
+      chip.title = '主线走完了：可以去做方案比选、变更演练或归档导出';
+      return;
+    }
+    chip.classList.remove('is-done');
+    chip.innerHTML = `<b>引导 ${guide.done}/${guide.total}</b>下一步：${escapeHtml(guide.current.title)}<span>→</span>`;
+    chip.dataset.guideTarget = JSON.stringify(guide.current.target);
+    chip.title = `${guide.current.why}（点一下直接过去）`;
   }
 
   function renderIdentity() {
@@ -213,7 +241,8 @@ window.WB = window.WB || {};
       resources: state.resources.length,
       drills: state.drills.length,
       material: Object.keys(state.materials).length,
-      assets: state.assets.length
+      assets: state.assets.length,
+      signup: state.signup ? state.signup.records.length : 0
     };
     $('#tabs').innerHTML = VIEWS.map((id) => {
       const view = window.WB.views[id];
@@ -266,12 +295,15 @@ window.WB = window.WB || {};
      总览的待办、阶段块、关键节点、产出缺口都带 data-goto-* 属性，是可点击入口。
      点一下就跳到能处理它的视图，并把该视图过滤到对应阶段、滚动到目标行并高亮，
      省掉用户在长表格里自己翻找的过程。 */
-  function jumpFrom(el) {
-    const view = el.dataset.gotoView;
+  /* 跳转的唯一入口：把「去哪、看什么」写成目标对象。
+     视图里的 data-goto-* 由 jumpFrom 解析后调用它，顶栏的引导按钮直接用目标对象调用，
+     两条路共用同一份筛选与定位逻辑，不会各写一套。 */
+  function gotoTarget(target) {
+    const view = target?.view;
     if (!view || !window.WB.views[view]) return false;
     const ui = store.state.ui;
-    const phase = el.dataset.gotoPhase || '';
-    const taskView = el.dataset.gotoTaskview || '';
+    const phase = target.phase || '';
+    const taskView = target.taskView || '';
     if (taskView) ui.taskView = taskView;
     if (phase) {
       if (view === 'tasks') {
@@ -282,14 +314,23 @@ window.WB = window.WB || {};
       if (view === 'assets') ui.assetPhase = phase;
       if (view === 'resources') ui.resourcePhase = phase;
     }
-    if (view === 'material') ui.openMaterial = el.dataset.gotoOpen || null;
+    if (view === 'material') ui.openMaterial = target.openMaterial || null;
     store.state.view = view;
     store.save();
     renderAll();
-    focusLanding(el.dataset.gotoRow || '');
+    focusLanding(target.row || '');
     return true;
   }
 
+  function jumpFrom(el) {
+    return gotoTarget({
+      view: el.dataset.gotoView,
+      phase: el.dataset.gotoPhase,
+      taskView: el.dataset.gotoTaskview,
+      openMaterial: el.dataset.gotoOpen,
+      row: el.dataset.gotoRow
+    });
+  }
   /* 落地反馈：滚动到视口中间并闪一下底色，避免用户在长表里自己找目标行 */
   function focusLanding(rowId) {
     if (!rowId) return;
@@ -304,6 +345,7 @@ window.WB = window.WB || {};
   }
 
   window.WB.jumpFrom = jumpFrom;
+  window.WB.gotoTarget = gotoTarget;
 
   /* ── 项目向导 ─────────────────────────── */
 
@@ -393,6 +435,14 @@ window.WB = window.WB || {};
     $('#tabs').addEventListener('click', (event) => {
       const tab = event.target.closest('.tab');
       if (tab) switchView(tab.dataset.view);
+    });
+
+    /* 顶栏引导：目标由 renderGuideChip 写进 data 属性，点一下走统一跳转 */
+    $('#guideChip')?.addEventListener('click', () => {
+      const chip = $('#guideChip');
+      let target = null;
+      try { target = JSON.parse(chip.dataset.guideTarget || 'null'); } catch (error) { target = null; }
+      if (!target || !gotoTarget(target)) switchView('overview');
     });
 
     $('#loginForm').addEventListener('submit', submitLogin);
