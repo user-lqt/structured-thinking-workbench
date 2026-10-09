@@ -767,6 +767,39 @@ window.WB.ai.mergeOutputs(p4, { proposal: false, poster: true });
 check('AI 不会取消用户已勾选的产出', p4.outputs.proposal === true);
 check('AI 可补勾未选择的产出', p4.outputs.poster === true);
 
+/* 占位词口径：AI 补空白时写的「待确认」是给人看的标记，不是项目数据——
+   它既不能被洗成数字 0，也不能被下游当成「这一项已经填了」。 */
+const p5 = store.freshProject();
+window.WB.ai.mergeBasic(p5, { guests: '待确认', budget: '待确认' });
+check('数字字段收到「待确认」时留空，不写成 0',
+  p5.basic.guests === undefined && p5.basic.budget === undefined,
+  `guests=${JSON.stringify(p5.basic.guests)} budget=${JSON.stringify(p5.basic.budget)}`);
+
+const p6 = store.freshProject();
+window.WB.ai.mergeBasic(p6, { guests: '300 人', budget: '¥12000' });
+check('数字字段仍能从文本里取出数字',
+  p6.basic.guests === 300 && p6.basic.budget === 12000,
+  `guests=${p6.basic.guests} budget=${p6.basic.budget}`);
+
+check('util.filled 把「待确认」与空值同等看待',
+  U.filled('待确认') === false && U.filled('') === false && U.filled(0) === true && U.filled('策划组') === true,
+  `待确认=${U.filled('待确认')} 空=${U.filled('')} 0=${U.filled(0)} 策划组=${U.filled('策划组')}`);
+
+/* 门禁证据：整份信息表全是占位词时，不该自动勾出任何检查点
+   （曾经的假阳性：主场地「待确认」与备用方案都已登记 → 自动勾上「场地已确认」） */
+const ghost = store.freshProject();
+Object.assign(ghost.basic, {
+  goal: '待确认', audience: '待确认', guests: 0, venue: '待确认', venueBackup: '待确认', budget: 0, approval: '待确认'
+});
+for (const key of ['goal', 'audience', 'venue', 'venueBackup', 'approval']) ghost.meta.basic[key] = 'pending';
+const ghostReview = window.WB.wbs.gateReview(ghost);
+const ghostLevels = Object.fromEntries(ghostReview.phases.flatMap((phase) => phase.items).map((item) => [item.id, item.level]));
+check('门禁不把「待确认」与 0 当成证据',
+  ghostLevels.goal === 'manual' && ghostLevels.scope === 'manual' && ghostLevels.venue === 'manual'
+    && ghostLevels.budget === 'manual' && ghostLevels.approval === 'manual',
+  JSON.stringify(ghostLevels));
+check('全占位项目没有可自动确认的检查点', ghostReview.ready === 0, `ready=${ghostReview.ready}`);
+
 /* ── 汇总 ──────────────────────────────── */
 /* ── 9. 视图渲染冒烟：每个视图都要能出表且不抛错 ── */
 const VIEW_IDS = ['projects', 'overview', 'manifest', 'tasks', 'decision', 'risk',
@@ -1804,6 +1837,58 @@ check('填写页没有项目号时不直传（不往服务端的 default 桶塞�
   && pageSrcGuard.includes("if (!knownProject || !trustedForm) { pushed = 'fail'; render(); return; }"));
 check('服务端拒绝没有项目号的提交（不再写进看不见的 default 桶）',
   fs.readFileSync(path.join(root, 'server.mjs'), 'utf8').includes("entry.projectId === 'default'"));
+
+/* 扫码前的「手机能不能连上」判断：把链接地址与服务姿态算成一个结论。只做本地就能判定的
+   判断、不试探网络；隧道 / 公网域名不猜，拿不到服务信息时整段提示不出现。 */
+const netSrc = fs.readFileSync(path.join(root, 'server.mjs'), 'utf8');
+check('/api/net 带上网卡名与端口，且不在远程放行名单里（只允许本机）',
+  /url\.pathname === '\/api\/net'/.test(netSrc)
+  && netSrc.includes('lanAddresses().map((item) => ({ name: item.name, url: `http://${item.address}:${port}` }))')
+  && netSrc.includes('lanOpen: !isLoopback(host)')
+  && !remoteGetList.includes('/api/net') && !remotePostList.includes('/api/net'));
+const SV = window.WB.views.signup;
+check('扫码判断：链接是本机地址（127.0.0.1 / localhost）→ 手机上打不开，哪怕服务已开放',
+  SV.reachability('http://127.0.0.1:4175/signup.html#p=k7f2', { lanOpen: true }) === 'loopback'
+  && SV.reachability('http://localhost:4175/signup.html', { lanOpen: false }) === 'loopback');
+check('扫码判断：局域网地址 + 服务已开放 → 可以扫；只监听本机 → 连不上',
+  SV.reachability('http://192.168.43.4:4175/signup.html', { lanOpen: true }) === 'ready'
+  && SV.reachability('http://192.168.43.4:4175/signup.html', { lanOpen: false }) === 'closed'
+  && SV.reachability('http://10.0.0.8:4175/signup.html', { lanOpen: false }) === 'closed');
+check('扫码判断：隧道 / 公网域名不猜，拿不到服务信息也安静',
+  SV.reachability('https://calm-sunset-a1b2.trycloudflare.com/signup.html#p=k7f2', { lanOpen: false }) === 'unknown'
+  && SV.reachability('http://127.0.0.1:4175/signup.html', null) === 'unknown'
+  && SV.reachability('http://192.168.43.4:4175/signup.html', undefined) === 'unknown');
+check('扫码判断：虚拟网卡不当答案，只认 WLAN / 以太网那条',
+  SV.lanChoice({ lanOpen: true, lan: [{ name: 'VMware Network Adapter VMnet1', url: 'http://192.168.118.1:4175' }, { name: 'WLAN', url: 'http://192.168.43.4:4175' }] })?.url === 'http://192.168.43.4:4175'
+  && SV.lanChoice({ lanOpen: true, lan: [{ name: 'vEthernet (Default Switch)', url: 'http://172.20.0.1:4175' }] }) === null);
+globalThis.fetch = async (url) => (String(url).includes('/api/net')
+  ? {
+    ok: true,
+    json: async () => ({
+      ok: true, bind: '0.0.0.0', port: 4175, lanOpen: true,
+      lan: [{ name: 'VMware Network Adapter VMnet1', url: 'http://192.168.118.1:4175' }, { name: 'WLAN', url: 'http://192.168.43.4:4175' }]
+    })
+  }
+  : { ok: false, status: 404, json: async () => ({}) });
+await SV.probeNet(true);
+store.state.signup.enabled = true;
+store.state.signup.base = 'http://192.168.43.4:4175';
+SV.render();
+const netReady = document.getElementById('signupBody').innerHTML;
+check('服务已开放 + 局域网地址 → 界面写「手机可以扫」，不再给一键按钮',
+  netReady.includes('手机可以扫') && !netReady.includes('data-signup-use-lan'));
+store.state.signup.base = 'http://127.0.0.1:4175';
+SV.render();
+const netLoop = document.getElementById('signupBody').innerHTML;
+check('链接是 127.0.0.1 → 界面报「手机扫了打不开」，并给出 WLAN 那条一键地址（跳过 VMware）',
+  netLoop.includes('手机扫了打不开')
+  && netLoop.includes('data-signup-use-lan="http://192.168.43.4:4175"')
+  && !netLoop.includes('192.168.118.1'));
+globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) });
+await SV.probeNet(true);
+SV.render();
+check('拿不到服务信息（纯静态托管 / 服务没开）→ 整段提示不出现',
+  !document.getElementById('signupBody').innerHTML.includes('signup-alert'));
 globalThis.fetch = fetchBackup;
 store.state.signup = joinBackup;
 

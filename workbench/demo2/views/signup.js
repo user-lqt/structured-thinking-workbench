@@ -25,6 +25,91 @@ window.WB.views = window.WB.views || {};
   const projectId = () => state().activeId || 'draft';
   const fillHint = () => `带 <b>*</b> 的必填；改字段不用重发链接，但二维码里的表单定义会跟着变，所以改完最好重新扫一次。`;
 
+  /* ── 手机到底能不能扫这个二维码：把「链接地址 + 服务姿态」算成一个结论 ──
+     最常踩的两个坑：链接里带着 127.0.0.1（在手机上指手机自己），以及服务只监听回环、
+     局域网请求根本到不了这个进程。这里只做本地就能判定的判断，不试探网络：
+     隧道 / 公网域名一律不猜——那类地址本来就该由使用者自己确认。 */
+  const LOOPBACK_HOST = /^(127(\.\d{1,3}){1,3}|localhost|::1|\[::1\]|0\.0\.0\.0)$/i;
+  const PRIVATE_HOST = /^(10\.\d{1,3}(\.\d{1,3}){2}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|169\.254(\.\d{1,3}){2})$/;
+  /* 虚拟网卡（VMware / Hyper-V / VirtualBox / VPN）手机连不到，别把它们当答案 */
+  const REAL_IFACE = /(WLAN|Wi-?Fi|无线|以太网|Ethernet)/i;
+  const VIRTUAL_IFACE = /(VMware|Hyper-?V|vEthernet|VirtualBox|Loopback|Bluetooth|蓝牙|TAP|VPN|Npcap|Radmin)/i;
+
+  let netInfo = null;
+
+  function hostOf(url) {
+    try { return String(new URL(String(url), 'http://localhost/').hostname || '').toLowerCase(); }
+    catch { return ''; }
+  }
+
+  /* 'loopback'：链接指向本机，手机上打不开
+     'closed'  ：地址像局域网，但服务没对局域网开放，请求到不了
+     'ready'   ：服务已开放，链接也不是本机地址 → 手机连同一个网络就能扫
+     'unknown' ：拿不到服务信息（纯静态托管 / 隧道 / 探测失败）→ 不显示任何提示 */
+  function reachability(url, info) {
+    if (!info || typeof info.lanOpen !== 'boolean') return 'unknown';
+    const host = hostOf(url);
+    if (LOOPBACK_HOST.test(host)) return 'loopback';
+    if (!info.lanOpen) return PRIVATE_HOST.test(host) ? 'closed' : 'unknown';
+    return 'ready';
+  }
+
+  /* 问一次服务：「你绑在哪个地址、对局域网开没开、这台机器有哪些可用地址」 */
+  async function probeNet(force) {
+    if (netInfo && !force) return netInfo;
+    let next = null;
+    try {
+      const res = await fetch('/api/net');
+      const data = res && res.ok ? await res.json() : null;
+      if (data && typeof data.lanOpen === 'boolean') {
+        next = {
+          lanOpen: data.lanOpen,
+          bind: String(data.bind || ''),
+          port: Number(data.port) || 0,
+          lan: Array.isArray(data.lan) ? data.lan : []
+        };
+      }
+    } catch { next = null; }
+    netInfo = next;
+    return netInfo;
+  }
+
+  /* 挑一条手机真能连到的地址：优先 WLAN / 以太网，跳过虚拟网卡 */
+  function lanChoice(info) {
+    const list = (info && Array.isArray(info.lan) ? info.lan : [])
+      .filter((item) => item && item.url && REAL_IFACE.test(String(item.name || '')) && !VIRTUAL_IFACE.test(String(item.name || '')));
+    return list[0] || null;
+  }
+
+  const restartHint = "<code>$env:DEMO2_HOST='0.0.0.0'; node workbench/demo2/server.mjs</code>";
+
+  function reachHtml(current, link) {
+    const verdict = reachability(link.url, netInfo);
+    if (verdict === 'unknown') return '';
+    const choice = lanChoice(netInfo);
+    const found = choice
+      ? `本机可用的局域网地址：<code>${escapeHtml(choice.url)}</code>（${escapeHtml(choice.name)}）`
+      : '没检测到 WLAN / 以太网地址：先让这台电脑连上 Wi-Fi 或手机热点。';
+    if (verdict === 'ready') {
+      return `<div class="signup-alert is-ok"><b>手机可以扫：服务已对局域网开放</b>
+        <p class="signup-hint">二维码里的地址是 <code>${escapeHtml(hostOf(link.url))}</code>。手机连到<b>同一个</b> Wi-Fi / 热点就能打开并提交，提交会直接进表。换了网络（包括换手机热点）地址会变，回来点一次「重新检测」再扫。</p>
+        <div class="assets-toolbar"><button class="button button-ghost" data-signup-check-net data-write>重新检测</button></div></div>`;
+    }
+    if (verdict === 'loopback') {
+      return `<div class="signup-alert is-bad"><b>二维码指向本机地址，手机扫了打不开</b>
+        <p class="signup-hint">链接里的 <code>127.0.0.1</code> / <code>localhost</code> 在手机上指的是<b>手机自己</b>，所以要么打不开、要么打开的是手机上别的东西。手机填写必须用这台电脑的局域网地址。</p>
+        ${netInfo.lanOpen
+          ? `<p class="signup-hint">${found}${choice ? '，点下面的按钮直接换过去，再让手机重新扫。' : ''}</p>
+        <div class="assets-toolbar">${choice ? `<button class="button button-primary" data-signup-use-lan="${escapeHtml(choice.url)}" data-write>改用 ${escapeHtml(choice.url)}</button>` : ''}<button class="button button-ghost" data-signup-check-net data-write>重新检测</button></div>`
+          : `<p class="signup-hint">而且服务现在<b>只监听了本机</b>：先在跑服务的窗口按 <code>Ctrl+C</code> 停掉，再用这条命令重启（启动日志里会打印可用地址），然后回来点「重新检测」：<br />${restartHint}</p>
+        <div class="assets-toolbar"><button class="button button-ghost" data-signup-check-net data-write>重启完了，重新检测</button></div>`}
+      </div>`;
+    }
+    return `<div class="signup-alert is-bad"><b>这个地址手机连不上：服务只监听了本机</b>
+      <p class="signup-hint">地址本身是局域网地址，但服务没有对局域网开放，外部请求到不了它。先在跑服务的窗口按 <code>Ctrl+C</code> 停掉，再用这条命令重启，然后点「重新检测」：<br />${restartHint}</p>
+      <div class="assets-toolbar"><button class="button button-ghost" data-signup-check-net data-write>重启完了，重新检测</button></div></div>`;
+  }
+
   /* 填写链接：本机服务在线时用「短码模式」——二维码里只放 4 位短码，表单定义由
      server.mjs 提供，手机提交直接落盘到工作台（隧道 / 局域网都走这条路）。
      服务不在（例如纯静态托管）时退回原来的写法：把表单定义一起塞进链接。 */
@@ -115,6 +200,7 @@ window.WB.views = window.WB.views || {};
         </div>`;
     return `<div class="card">
       <div class="card-title"><h3>② 填写页与二维码</h3><small>${link.fits ? `链接 ${usage}` : `需要 ${usage}`}</small></div>
+      ${reachHtml(current, link)}
       <div class="signup-grid">
         <div class="signup-channel">
           ${qrBlock}
@@ -413,11 +499,27 @@ window.WB.views = window.WB.views || {};
     if (!panel) return;
 
     panel.addEventListener('click', (event) => {
-      const el = event.target.closest('[data-signup-enable],[data-signup-disable],[data-signup-preset],[data-signup-add],[data-signup-move],[data-signup-remove-field],[data-signup-key],[data-signup-view-link],[data-signup-download-qr],[data-signup-view-page],[data-signup-view-preview],[data-signup-view-code],[data-signup-sync],[data-signup-clear-queue],[data-signup-add-row],[data-signup-checkin],[data-signup-remove],[data-signup-import],[data-signup-import-file],[data-signup-export-csv],[data-signup-export-md],[data-signup-export-json]');
+      const el = event.target.closest('[data-signup-enable],[data-signup-disable],[data-signup-preset],[data-signup-add],[data-signup-move],[data-signup-remove-field],[data-signup-key],[data-signup-view-link],[data-signup-download-qr],[data-signup-view-page],[data-signup-view-preview],[data-signup-view-code],[data-signup-sync],[data-signup-clear-queue],[data-signup-add-row],[data-signup-checkin],[data-signup-remove],[data-signup-import],[data-signup-import-file],[data-signup-export-csv],[data-signup-export-md],[data-signup-export-json],[data-signup-use-lan],[data-signup-check-net]');
       if (!el) return;
       const current = signup();
       const name = U.safeFileName(store().projectName());
       const on = (attribute) => el.hasAttribute(attribute) || el.closest(`[${attribute}]`) === el;
+
+      /* 一键把「访问地址」换成检测到的局域网地址，其它字段一个不动 */
+      if (el.hasAttribute('data-signup-use-lan')) {
+        current.base = String(el.dataset.signupUseLan || '');
+        save();
+        render();
+        window.WB.toast('已改用局域网地址：二维码已更新，让手机重新扫');
+        return;
+      }
+      if (on('data-signup-check-net')) {
+        probeNet(true).then(() => {
+          render();
+          window.WB.toast('已重新检测');
+        });
+        return;
+      }
 
       if (on('data-signup-enable')) {
         current.enabled = true;
@@ -651,6 +753,10 @@ window.WB.views = window.WB.views || {};
     /* 本机服务在线时登记短码：二维码变小、手机提交直接进表 */
     registerLink({ render: state().view === 'signup' });
 
+    /* 问一次服务的网络姿态：拿到了，「手机能不能扫」那段提示才会出现；
+       服务不在（纯静态托管）就安静，什么都不显示。 */
+    probeNet(false).then((info) => { if (info && state().view === 'signup') render(); });
+
     /* 兜底轮询：iframe 里的提交在个别浏览器上不派发 storage 事件；
        顺便把手机直传（隧道 / 局域网）的增量拉回来，并在表单改过之后重登记短码 */
     if (!pollTimer) {
@@ -683,6 +789,9 @@ window.WB.views = window.WB.views || {};
     importText,
     handleFile,
     linkFor: () => linkOf(signup()),
+    reachability,
+    probeNet,
+    lanChoice,
     pullServer,
     registerLink,
     needRegister,

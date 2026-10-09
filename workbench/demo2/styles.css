@@ -104,6 +104,8 @@ p { margin: 0; }
 .wizard.is-open { display: flex; opacity: 1; }
 @starting-style { .wizard.is-open { opacity: 0; } }
 
+/* 面板做成「头 / 可滚动正文 / 底」三段：字段多的时候滚动只发生在中间，
+   底部的「生成结构化表格 →」始终留在视口里（1560×900 这类小高度窗口以前要手动往下滚才点得到）。 */
 .wizard-panel {
   width: min(760px, 100%);
   background: var(--surface);
@@ -112,9 +114,13 @@ p { margin: 0; }
   padding: 28px;
   transform-origin: center;
   transition: transform var(--dur-enter) var(--ease-out);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
+  max-height: calc(100dvh - 80px);
 }
 @starting-style { .wizard.is-open .wizard-panel { transform: scale(0.98); } }
-.wizard-head { display: flex; gap: 14px; margin-bottom: 22px; }
+.wizard-head { display: flex; gap: 14px; margin-bottom: 22px; flex: none; }
 .wizard-head h1 { font-size: 21px; margin: 4px 0 6px; }
 .wizard-head p { color: var(--text-soft); font-size: 13px; }
 
@@ -122,6 +128,8 @@ p { margin: 0; }
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px 18px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .wizard-fields .field.wide { grid-column: 1 / -1; }
 
@@ -154,6 +162,7 @@ p { margin: 0; }
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
+  flex: none;
 }
 .wizard-hint { font-size: 12.5px; color: var(--text-faint); }
 .wizard-actions { display: flex; gap: 10px; }
@@ -254,6 +263,12 @@ p { margin: 0; }
 }
 .card-title h3 { font-size: 14.5px; }
 .card-title small { color: var(--text-faint); font-size: 12px; }
+/* 卡片正文默认靠内容块自带的内边距（.matrix-wrap / .gantt / .cv-chips 都是这么写的）；
+   下面这几个块漏了这一层，文字会直接贴到卡片左边框上——按卡片标题的 18px 补齐。
+   用 `>` 限定，只命中「直接挂在卡下」的那一份，不会给已经在带内边距容器里的同类加两层。 */
+#overviewPanel .card > .risk-legend,
+#decisionPanel .card > .material-title,
+#helpPanel .card > .help-muted { padding-left: 18px; padding-right: 18px; }
 
 /* ── 事实区表格 ───────────────────────────── */
 .kv-row {
@@ -1505,6 +1520,14 @@ tr.is-blocked > td { background: #fef7f6; }
 .fill-step-flag { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--amber); background: var(--amber-soft); border-radius: 4px; padding: 0 5px; }
 
 /* 参与者信息收集（可选能力）：字段设计器 / 二维码卡 / 实时汇总 / 记录表 */
+/* 「参与者」页的几张卡：内容块是直接挂在 .card 下的，而 .card 自身没有内边距
+   （别的视图都有一层带内边距的容器，如 .matrix-wrap / .gantt），于是二维码、表格
+   与提示文字会一路贴到卡片边框上。这里按卡片标题的 18px 补齐：左右各 18px、底部
+   18px 收尾；标题用负外边距拉回通栏，底部分隔线照旧通到底。 */
+#signupPanel .card { padding: 0 18px 18px; }
+#signupPanel .card > .card-title { margin: 0 -18px; }
+#signupPanel .signup-import > .card-title { padding-left: 0; padding-right: 0; }
+#signupPanel .signup-hero { padding: 16px 18px; }
 .signup-hero { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
 .signup-hero-main { flex: 1 1 320px; }
 .signup-hero-main h3 { font-size: 16px; margin: 2px 0 6px; }
@@ -1518,6 +1541,12 @@ tr.is-blocked > td { background: #fef7f6; }
 .signup-presets { margin: 4px 0 2px; }
 .signup-grid { display: grid; grid-template-columns: minmax(260px, 320px) minmax(280px, 1fr); gap: 18px; align-items: start; }
 .signup-channel { display: grid; gap: 8px; align-content: start; }
+.signup-alert { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 0 0 14px; }
+.signup-alert b { font-size: 13.5px; }
+.signup-alert .signup-hint { margin-top: 4px; }
+.signup-alert .assets-toolbar { margin-top: 8px; }
+.signup-alert.is-bad { background: #fdecea; border-color: #f0cdc7; color: #a3352a; }
+.signup-alert.is-ok { background: #e8f5ec; border-color: #c9e5cf; color: #1e7a45; }
 .signup-qr { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .signup-qr svg { width: 100%; max-width: 240px; height: auto; display: block; }
 .signup-qr.is-over { background: var(--amber-soft); border-color: #f0d9ae; color: var(--amber); text-align: left; align-items: stretch; }
@@ -1966,7 +1995,7 @@ tr.is-landing > td { background-color: #d9ece7; }
 .gate-col.is-target { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 /* ── 问答式补全 ───────────────────────────── */
 .interview .interview-panel { width: min(720px, 100%); }
-.interview-body { min-height: 200px; }
+.interview-body { min-height: 160px; overflow-y: auto; }
 
 .iv-progress { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .iv-count { font-size: 13px; font-weight: 650; }

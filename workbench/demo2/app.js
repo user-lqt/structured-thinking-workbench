@@ -221,6 +221,14 @@ window.WB = window.WB || {};
       const el = document.getElementById(id);
       if (el) el.disabled = disabled;
     }
+    /* 下面这几个按钮所在的视图不在本次重绘范围内，忙碌时单独加锁，
+       避免同一份输入被并发调用两次。解锁交给各自视图的下一次 render()。 */
+    if (window.WB.ai.busy) {
+      for (const id of ['generateAllMaterials', 'decisionAi', 'generateWbs']) {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+      }
+    }
     window.WB.views.tasks.render();
     window.WB.views.risk.render();
     window.WB.views.resources.render();

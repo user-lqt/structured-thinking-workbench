@@ -555,6 +555,18 @@ const server = http.createServer(async (req, res) => {
       const lines = joinLines(projectId);
       return send(res, 200, { ok: true, project: joinKey(projectId), total: lines.length, since, records: lines.slice(since, since + 200) });
     }
+    /* ⑤ 服务自己的网络姿态（只允许本机）：工作台据此判断「这个二维码手机能不能扫」。
+       带上网卡名，界面才能挑出 WLAN / 以太网那条，而不是把 VMware 的地址当成答案。 */
+    if (url.pathname === '/api/net') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: '仅支持 GET 请求' });
+      return send(res, 200, {
+        ok: true,
+        bind: host,
+        port,
+        lanOpen: !isLoopback(host),
+        lan: lanAddresses().map((item) => ({ name: item.name, url: `http://${item.address}:${port}` }))
+      });
+    }
     if (url.pathname === '/api/health') {
       return send(res, 200, {
         ok: true,

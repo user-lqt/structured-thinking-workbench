@@ -7,7 +7,8 @@ window.WB = window.WB || {};
   const U = window.WB.util;
   const { BASIC_FIELDS, OUTPUT_ITEMS, PHASES } = U;
 
-  const has = (value) => U.text(value) !== '';
+  /* 「待确认」这类占位词表示这项还没定，不能算「这步做完了」 */
+  const has = (value) => U.filled(value);
   const basicOf = (state) => state.project?.basic || {};
   const outputsOf = (state) => OUTPUT_ITEMS.filter((item) => state.project?.outputs?.[item.key]);
   const materialsOf = (state) => outputsOf(state).filter((item) => state.materials?.[item.key]);

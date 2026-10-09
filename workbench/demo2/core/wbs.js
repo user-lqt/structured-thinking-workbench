@@ -144,7 +144,13 @@ window.WB = window.WB || {};
   const partialVerdict = (evidence, fix = null) => ({ level: 'partial', evidence, fix });
   const manualVerdict = (evidence, fix = null) => ({ level: 'manual', evidence, fix });
 
-  const filled = (value) => String(value ?? '').trim().length > 0;
+  /* 空值与「待确认」这类占位词都不算填过；数字类判据另外要求为正数。
+     与 guide.js 共用同一份判断，避免一处认「待确认」、另一处不认。 */
+  const filled = (value) => window.WB.util.filled(value);
+  const positive = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0;
+  };
   const clip = (value, max) => {
     const str = String(value ?? '').trim();
     return str.length > max ? `${str.slice(0, max)}…` : str;
@@ -160,28 +166,28 @@ window.WB = window.WB || {};
   const GATE_RULES = {
     /* ── 前期策划 ── */
     goal: (s) => {
-      const goal = String(s.project?.basic?.goal ?? '').trim();
+      const goal = filled(s.project?.basic?.goal) ? String(s.project.basic.goal).trim() : '';
       if (goal.length >= 8) return readyVerdict(`核心目标已写成可核验的描述：「${clip(goal, 24)}」`);
       if (goal) return partialVerdict(`核心目标只写了 ${goal.length} 个字，还不够可核验`, { view: 'manifest' });
       return manualVerdict('项目信息表里还没填核心目标', { view: 'manifest' });
     },
     scope: (s) => {
       const audience = filled(s.project?.basic?.audience);
-      const guests = filled(s.project?.basic?.guests);
+      const guests = positive(s.project?.basic?.guests);
       if (audience && guests) return readyVerdict('目标受众与预计人数都已填写');
       if (audience || guests) return partialVerdict(`还缺「${audience ? '预计人数' : '目标受众'}」`, { view: 'manifest' });
       return manualVerdict('活动对象与规模还没填', { view: 'manifest' });
     },
     venue: (s) => {
-      const main = String(s.project?.basic?.venue ?? '').trim();
-      const backup = String(s.project?.basic?.venueBackup ?? '').trim();
+      const main = filled(s.project?.basic?.venue) ? String(s.project.basic.venue).trim() : '';
+      const backup = filled(s.project?.basic?.venueBackup) ? String(s.project.basic.venueBackup).trim() : '';
       const venueCount = resourcesOf(s, ['venue']).length;
       if (main && (backup || venueCount >= 2)) return readyVerdict(`主场地「${clip(main, 16)}」与备用方案都已登记`);
       if (main) return partialVerdict(`已定主场地「${clip(main, 16)}」，但还没有备用场地`, { view: 'resources' });
       return manualVerdict('场地还没确定', { view: 'manifest' });
     },
     budget: (s) => {
-      const budget = filled(s.project?.basic?.budget);
+      const budget = positive(s.project?.basic?.budget);
       const ledger = resourcesOf(s, ['budget']).length;
       if (budget && generated(s, 'budgetSheet')) return readyVerdict('预算上限已定，预算表已生成');
       if (budget && ledger) return readyVerdict(`预算上限已定，经费台账已登记 ${ledger} 条`);
@@ -195,7 +201,7 @@ window.WB = window.WB || {};
       return partialVerdict('还没有组织分工表，任务也大多没指派负责角色', materialFix('staffing'));
     },
     approval: (s) => {
-      const requirement = String(s.project?.basic?.approval ?? '').trim();
+      const requirement = filled(s.project?.basic?.approval) ? String(s.project.basic.approval).trim() : '';
       if (generated(s, 'application')) return readyVerdict('活动申报表已生成');
       if (requirement) return partialVerdict(`审批要求已写明「${clip(requirement, 16)}」，但申报材料还没生成`, materialFix('application'));
       return manualVerdict('审批要求还没写，申报材料也没生成', { view: 'manifest' });

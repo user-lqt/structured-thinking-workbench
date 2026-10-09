@@ -155,7 +155,11 @@ window.WB = window.WB || {};
   function normaliseValue(field, raw) {
     if (raw == null) return '';
     if (field.type === 'number') {
-      const num = Number(String(raw).replace(/[^\d.-]/g, ''));
+      /* 数字字段收到「待确认」这类占位词时不能当成 0：洗掉非数字字符后 Number('') 正好是 0，
+         会把「不知道」写成一个看起来像事实的数字。洗不出数字就返回空，交给下游当未填处理。 */
+      const cleaned = text(raw).replace(/[^\d.-]/g, '');
+      if (cleaned === '') return '';
+      const num = Number(cleaned);
       return Number.isFinite(num) ? num : text(raw);
     }
     const value = Array.isArray(raw) ? raw.join('；') : text(raw);

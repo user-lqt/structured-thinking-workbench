@@ -63,6 +63,14 @@ window.WB = window.WB || {};
 
   const text = (value) => String(value ?? '').trim();
 
+  /* 占位词：AI 补空白时写的「待确认」这类词，表示「还没定」，是给人看的标记，不是项目事实。
+     凡是靠项目数据推断「这一项填没填」的地方，都要把它和空值一样看待。 */
+  const PLACEHOLDER_RE = /^(待确认|待定|待补充|待完善|待核实|暂定|未确定|tbd|n\/a)$/i;
+  const filled = (value) => {
+    const raw = text(value);
+    return raw !== '' && !PLACEHOLDER_RE.test(raw);
+  };
+
   /* 把 D-7 / D+3 / D-Day 解析为相对活动日的天数偏移（负数=活动前） */
   function parseDue(raw) {
     const value = text(raw).replace(/\s/g, '');
@@ -147,10 +155,13 @@ window.WB = window.WB || {};
      其余（手工编辑、甘特、检查点、海报、导出）一律照常可用。 */
   const AI_OFFLINE_HINT = '离线模式：未配置 API Key，这一项需要 AI；其余功能全部可用';
   const offline = () => !(window.WB.ai && window.WB.ai.ready);
+  /* AI 按钮的统一开关：离线、没有项目、已经有一次生成在跑，都不该再点第二次。
+     忙碌判断只写在这一处，免得各视图各写一遍——少写一处就会漏（tasks / material / decision 都漏过）。 */
   const gateAi = (el, enabled = true) => {
     if (!el) return;
-    el.disabled = !enabled || offline();
-    el.title = offline() ? AI_OFFLINE_HINT : '';
+    const busy = Boolean(window.WB.ai?.busy);
+    el.disabled = !enabled || offline() || busy;
+    el.title = offline() ? AI_OFFLINE_HINT : (busy ? 'AI 正在生成，请稍候' : '');
   };
 
   /* ── 身份与权限（本地演示，非真实鉴权）────
@@ -179,6 +190,8 @@ window.WB = window.WB || {};
     uid,
     clamp,
     text,
+    filled,
+    PLACEHOLDER_RE,
     parseDue,
     dateFromDue,
     fmtDate,
