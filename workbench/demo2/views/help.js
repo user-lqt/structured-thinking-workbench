@@ -91,18 +91,24 @@ window.WB.views = window.WB.views || {};
     ['「AI 补全空位」会拿哪些信息去补？','会先把整套项目上下文交给模型：项目信息表（活动类型 / 名称 / 时间 / 地点 / 对象 / 主办承办…）、任务分解、风险台账、资源台账、素材库，以及参考原文的写法；表格里的数字格也一起发。页面下方要求「输入里的每个空位 id 都要回一行」，模型**找不到依据的格子会显式留空**（不会瞎编），确实没有依据的和漏答的会分开计数（提示「已填 N / 无依据 N / 没回 N」）。所以你看到某格是空的，可能是表里本来就没有能推出它的信息——补一句事实（比如负责人、金额）再点一次就好。'],
   ];
 
+  const KIND_TEXT = { document: '文档', table: '表格', graphic: '图形', structure: '结构化表' };
+  const DELIVERABLE_TEXT = { word: 'Word', excel: 'Excel', svg: '海报 SVG/PNG', markdown: 'Markdown/CSV', none: '—' };
+
   function renderSkills() {
-    const skills = Object.values(window.WB.ai.skills());
+    const registry = Object.values(window.WB.ai.skills());
+    /* 本机导入的自定义技能包也列进来：静态托管（读不到注册表）时至少还能看到它们 */
+    const custom = (window.WB.catalog?.list() || []).map((skill) => ({ ...skill, custom: true }));
+    const skills = [...registry, ...custom];
     if (!skills.length) return SECTION('技能包一览', '<p class="help-muted">尚未读取到技能注册表。</p>');
     const items = skills.map((skill) => `<tr>
       <td><code>${escapeHtml(skill.id)}</code></td>
       <td>${escapeHtml(skill.title)}</td>
       <td>${escapeHtml(PHASE_LABEL[skill.phase] || skill.phase)}</td>
-      <td>${escapeHtml({ document: '文档', table: '表格', graphic: '图形', structure: '结构化表' }[skill.kind] || skill.kind)}</td>
-      <td>${escapeHtml({ word: 'Word', excel: 'Excel', svg: '海报 SVG/PNG', markdown: 'Markdown/CSV', none: '—' }[skill.deliverable] || skill.deliverable || '—')}</td>
-      <td>${skill.ready ? '<span class="ok-tag">已接入</span>' : '<span class="warn-tag">待接入</span>'}</td>
+      <td>${escapeHtml(KIND_TEXT[skill.kind] || skill.kind)}</td>
+      <td>${escapeHtml(DELIVERABLE_TEXT[skill.deliverable] || skill.deliverable || '—')}</td>
+      <td>${skill.custom ? '<span class="ok-tag">自定义</span>' : (skill.ready ? '<span class="ok-tag">已接入</span>' : '<span class="warn-tag">待接入</span>')}</td>
     </tr>`).join('');
-    return SECTION('技能包一览', `<p class="help-muted">每个产出对应一个技能包，定义在 <code>skills/&lt;id&gt;/SKILL.md</code>。技能包写「何时使用 + 输出契约 + 事实边界 + 交付格式」，具体细节放 references/；「交付」列是每个技能的主交付格式（表格型 Excel、正文型 Word）。</p>
+    return SECTION('技能包一览', `<p class="help-muted">每个产出对应一个技能包：内置的定义在 <code>skills/&lt;id&gt;/SKILL.md</code>（「何时使用 + 输出契约 + 事实边界 + 交付格式」，细节放 references/）；标「自定义」的是在「产出配置 → ＋ 自定义产出」里导入的技能包，存在本机浏览器，不写进仓库。「交付」列是每个技能的主交付格式（表格型 Excel、正文型 Word）。</p>
       <div class="table-scroll"><table class="matrix help-table"><thead><tr><th>ID</th><th>名称</th><th>阶段</th><th>类型</th><th>交付</th><th>状态</th></tr></thead><tbody>${items}</tbody></table></div>`);
   }
 

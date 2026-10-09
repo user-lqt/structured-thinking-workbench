@@ -39,13 +39,16 @@ window.WB = window.WB || {};
   }
 
   const skills = () => skillIndex;
-  const isReady = (id) => Boolean(skillIndex[id]?.ready);
+  /* 内置技能看服务端 registry 是否就绪；自定义技能包自带规则，导入即可用 */
+  const isReady = (id) => Boolean(skillIndex[id]?.ready) || Boolean(window.WB.catalog?.isCustom(id));
 
   async function request(skill, contract, input, endpoint = '/api/structure') {
+    /* 自定义技能不在服务端 registry 里：把技能包正文一起带上，服务端据此组装 system prompt */
+    const rules = window.WB.catalog?.rulesFor(skill) || '';
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skill, contract, input })
+      body: JSON.stringify(rules ? { skill, contract, input, rules } : { skill, contract, input })
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(payload.error || `请求失败（HTTP ${res.status}）`);

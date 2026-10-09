@@ -351,7 +351,7 @@ node workbench/demo2/tools/pack-static.mjs
 ```
 demo2/
 ├─ .gitignore          忽略运行期产物：generated/（含手机直传落盘）与 dist/
-├─ index.html          12 个视图面板 + 登录门 + 项目向导 + 问答式补全弹窗 + 模板/参考/发票文件入口 + 脚本加载顺序
+├─ index.html          12 个视图面板 + 登录门 + 项目向导 + 问答式补全弹窗 + 自定义技能包弹窗 + 模板/参考/发票文件入口 + 脚本加载顺序
 ├─ signup.html         独立的手机填写页：按链接 / 表单码渲染字段，提交写本地队列，可签到、改回自己的信息
 ├─ app.js              编排层：视图路由、本地身份与角色门禁、多项目切换、项目向导、顶栏、全局事件、启动
 ├─ schemas.js          项目信息表 / 任务分解表 / 门禁 / 比选 / 风险 的结构契约
@@ -363,6 +363,7 @@ demo2/
 │  ├─ qr.js            二维码编码器（自实现、零依赖）：字节模式 + 纠错等级 M、版本 1–7、上限 122 字节，装不下返回 null 而不是截断
 │  ├─ signup.js        参与者信息收集（纯函数）：字段预设与增删、表单码 / 回执码编解码、提交队列幂等折叠、去重与汇总统计、CSV 导入导出、短码链接的降级梯子（`options.short`）
 │  ├─ store.js         状态、多项目库、本地身份、门禁确认来源、v1/v2→v3 迁移、变更记录、项目包导入导出
+│  ├─ skills.js        技能目录：内置技能包（固定）与自定义技能包（可组装）的装配层 —— 格式识别与校验、本机技能库、把自定义产出原地注入产出配置并注入默认章节
 │  ├─ risk.js          风险评分、分级、分布与覆盖度自检
 │  ├─ wbs.js           阶段统计、完成度、门禁统计、证据推断与自动打勾、甘特布局、缺口检查
 │  ├─ guide.js         填写路线图：9 步（7 必做 + 2 可选）的完成判断全部由项目数据推断，供总览卡片与顶栏引导按钮共用
@@ -374,7 +375,7 @@ demo2/
 │  ├─ docx.js          参考件解析：读 .docx（ZIP + DecompressionStream）/ .md / .txt，抽出栏目、字段、原文与版式套件（样式表 / 页面设置 / 页眉页脚），并做覆盖核对；「参考表填值」在这上面识别空位（字段 / 段落 / 表格格）、只替换值再重打包，其余部件按原始压缩字节照搬
 │  └─ export.js        导出产物（Markdown / CSV / Word / Excel / 全量档案）；金额表发票列按行派生，有附件才补列
 ├─ views/              12 个视图：projects / overview / manifest / tasks / decision / risk / resources / drills / material / assets / signup / help
-├─ skills/             28 个技能包（全部 ready，各带 deliverable 交付格式）+ registry.json + _template
+├─ skills/             28 个内置技能包（全部 ready，各带 deliverable 交付格式）+ registry.json + _template；工作台里导入的自定义技能包不落这里，存在浏览器本地
 ├─ generated/          运行期生成：AI 生图 + 手机直传落盘（`generated/join/`，首次使用时自动创建；`generated/` 已被 `.gitignore` 忽略）
 ├─ samples/            示例项目 JSON + 示例 Word 模板
 ├─ tools/
@@ -389,7 +390,7 @@ demo2/
 |---|---|
 | `GET /api/health` | 是否已配置 DeepSeek Key，前端据此决定在线 / 离线模式 |
 | `GET /api/skills` | 返回技能注册表，并逐个探测 `SKILL.md` 是否存在 |
-| `POST /api/structure` | 结构化表生成，入参 `{ skill, contract, input }` |
+| `POST /api/structure` | 结构化表生成，入参 `{ skill, contract, input, rules? }`；`rules` 只有自定义技能包会带（服务端不进 registry，用完即弃） |
 | `POST /api/material` | 材料生成，参数同上（同一处理器） |
 | `POST /api/template?name=xxx.docx` | 上传模板原始字节，返回解析出的章节与表格 |
 | `POST /api/image` | YosHub 生图，入参 `{ prompt, size? }`；结果落盘到 `generated/`，返回 `{ url, model, width, height }` |
@@ -399,10 +400,10 @@ demo2/
 | `POST /api/signup/submit` | 隧道 / 局域网访客可用：手机提交回执码（限流 40 条/分、单条 ≤ 8 KB、单项目 ≤ 800 条，按内容幂等） |
 | `GET /api/signup/queue?project=&since=` | 本机专用：工作台按游标拉新的手机提交 |
 
-服务端不含业务逻辑：按注册表加载 `skills/<id>/SKILL.md`（剔除 frontmatter）→ 拼上调用方注入的 JSON 契约与输入 → 以 JSON 模式调用 DeepSeek → 返回解析后的对象。
+服务端不含业务逻辑：按注册表加载 `skills/<id>/SKILL.md`（剔除 frontmatter）→ 拼上调用方注入的 JSON 契约与输入 → 以 JSON 模式调用 DeepSeek → 返回解析后的对象。自定义技能包不在注册表里：调用方在 `rules` 里把技能包正文一起带过来，服务端直接用这一份当规则——不写盘、不进 `registry.json`、用完即弃。
 
 - 非本机请求（局域网 / 隧道）只放行 `/signup.html`、`core/qr.js`、`core/signup.js`、`/api/signup/form`、`/api/signup/submit`，其余 API 与静态文件一律 `403`（规则在 `/api/*` 与静态分发之前生效）
-- 未注册的 skill → `400`
+- 未注册的 skill：带了 `rules`（自定义技能包）→ 正常生成；没带 → `400`
 - 已登记但未接入 → `501`，并提示应该创建哪个文件
 - 未配置 Key → `503`（`/api/structure` 看 `DEEPSEEK_API_KEY`，`/api/image` 看 `YOSHUB_API_KEY`）
 - `GET /api/health` 会同时返回 `providers.deepseek` 与 `providers.yoshub`，前端据此分别置灰两类按钮
@@ -423,6 +424,46 @@ skills/<id>/
 - `registry.json` 是唯一登记处；`status: planned` 的技能在工作台里显示为「待接入」
 - `SKILL.md` 里的 `## 参考样例` 声明本产出怎么对待用户上传的样表（结构对齐 / 字段不漏 / 值不照抄 / 只增不改），`_template/SKILL.md` 是通用版；改它不需要重启服务，下一次生成就读到新规则
 - 新增技能：复制 `_template/SKILL.md` → 写内容 → 把注册表状态改为 `ready` → 工作台自动点亮
+
+### 两层：固定 + 可组装
+
+「产出配置」不是写死的清单，而是由 `core/skills.js`（技能目录）装配出来的：
+
+| 层 | 有哪些 | 怎么改 |
+|---|---|---|
+| **内置技能包（固定）** | 与 `skills/registry.json` 一一对应的 21 项产出；带专属视图、与工作台状态耦合的（方案比选决策矩阵）也在这一层 | 按上面的流程加 `skills/<id>/SKILL.md` + 登记表 |
+| **自定义技能包（可组装）** | 用户在工作台里粘贴导入的产出，存在浏览器本地，可加可删 | 「产出配置」工具条上的 **＋ 自定义产出** |
+
+装配方式是**原地改写**产出清单（`util.OUTPUT_ITEMS` 始终是同一个数组对象），所以每个视图在加载期解构过的那份引用都会自动看到新产出；自定义产出的默认章节同时注入 `SKILLS.materials`，过程材料、导出、模板注入全部照常走。
+
+### 自定义技能包：约定格式
+
+格式就是 `SKILL.md` 那一套 frontmatter，装进一段文本里：
+
+````
+---
+name: safety-brief          # 技能 id：字母开头，只含字母数字与 - _（必填）
+title: 参与者安全须知        # 产出名称，显示在产出配置里（必填）
+kind: document             # document 文档 / table 表格 / graphic 图形（必填）
+phase: prepare             # plan / prepare / execute / close（选填，默认 plan）
+output: safetyBrief        # 产出的 key，不写就取 name（选填）
+description: 面向参与者的安全须知（选填）
+sections:                  # 章节，一行一条（必填；document/table ≥ 2 条，graphic ≥ 1 条）
+  - 一、活动风险提示
+  - 二、着装与物品要求
+  - 三、紧急联络与处置流程
+---
+
+正文写给 AI 的写作要求（语气、篇幅、必须写到的要点、事实边界）。留空也行，
+工作台会按上面的章节给一段通用口径。
+````
+
+- 行内 `#` 注释会被剥掉（`kind: document   # 文档`）；`sections` 也接受 `|` 分隔或 `[a, b]` 流式写法
+- 识别不通过时弹窗里逐条说原因：缺 `title`、`kind` 不合法、章节太少、产出 key 与内置重名……
+- `kind: structure` 需要工作台里配套的专属视图，暂不开放自定义；`deliverable` 必须与 `kind` 自洽（文档 → `word`、表格 → `excel`、图形 → `svg`），不写就按 kind 推断
+- 点「识别并加入」后立刻出现在产出配置里（默认勾上）：过程材料能按它的章节生成，Word / Excel / Markdown 都能导；AI 生成时技能包正文随调用一起发给服务端（见「接口」）
+- 技能库存在浏览器本地（键 `demo2-custom-skills-v1`），**换项目、重启服务都还在**；弹窗里的「导出技能包」把整库导成一个 `.md`，发给别人粘贴导入即可
+- 换了电脑、或删过技能包时，项目里勾过的产出会显示「这个项目引用了 N 个本机没有的技能（…）」——导入对应技能包即可恢复
 
 ## 已知边界
 

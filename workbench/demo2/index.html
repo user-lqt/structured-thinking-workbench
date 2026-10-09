@@ -75,6 +75,34 @@
       </div>
     </div>
 
+    <div id="skillImport" class="wizard skill-import" role="dialog" aria-modal="true" aria-labelledby="skillImportTitle">
+      <div class="wizard-panel skill-import-panel">
+        <div class="wizard-head">
+          <span class="brand-mark small">技</span>
+          <div>
+            <div class="eyebrow">技能库 · 自由组装</div>
+            <h1 id="skillImportTitle">导入自定义技能包</h1>
+            <p id="skillImportSubtitle">按约定格式粘贴一段技能包，识别通过后它会进入「产出配置」，和内置产出一样能生成与导出。</p>
+          </div>
+          <button type="button" class="quiet-icon close-skill-import" aria-label="关闭">×</button>
+        </div>
+        <div class="skill-import-body">
+          <textarea id="skillImportText" rows="14" spellcheck="false" placeholder="粘贴技能包：以 --- 包起来的 name / title / kind / phase / output / sections，正文写给 AI 的要求（可留空）"></textarea>
+          <div class="skill-import-preview" id="skillImportPreview"></div>
+        </div>
+        <div id="skillImportList" class="skill-import-list"></div>
+        <div class="wizard-foot">
+          <span id="skillImportHint" class="wizard-hint">格式与 skills/&lt;id&gt;/SKILL.md 一致：frontmatter 定身份与章节，正文写给 AI 的要求；正文留空也能用。</span>
+          <div class="wizard-actions">
+            <button type="button" class="button button-ghost" id="skillImportSample">填入示例</button>
+            <button type="button" class="button button-ghost" id="skillImportExport">导出技能包</button>
+            <button type="button" class="button button-ghost" id="skillImportClose">取消</button>
+            <button type="button" class="button button-primary" id="skillImportAdd">识别并加入</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="shell">
       <header class="topbar">
         <div class="topbar-left">
@@ -287,6 +315,7 @@
     <script src="./core/qr.js"></script>
     <script src="./core/signup.js"></script>
     <script src="./core/store.js"></script>
+<script src="./core/skills.js"></script>
     <script src="./core/risk.js"></script>
     <script src="./core/wbs.js"></script>
     <script src="./core/guide.js"></script>

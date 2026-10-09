@@ -59,7 +59,7 @@ window.WB.views = window.WB.views || {};
         return `<label class="output-item ${on ? 'is-on' : ''}" data-output-item="${item.key}">
           <input type="checkbox" data-output="${item.key}" ${on ? 'checked' : ''} />
           <span class="output-text">
-            <span class="output-label">${escapeHtml(item.label)}${item.core ? '<i class="core-mark" title="核心产出">核心</i>' : ''}</span>
+            <span class="output-label">${escapeHtml(item.label)}${item.core ? '<i class="core-mark" title="核心产出">核心</i>' : ''}${item.custom ? '<i class="custom-mark" title="自定义技能包，存在本机浏览器">自定</i>' : ''}</span>
             <span class="output-skill ${ready ? 'is-ready' : ''}">${escapeHtml(KIND_LABEL[item.kind] || '')} · ${escapeHtml(item.skill)}</span>
           </span>
           <span id="badge-output-${item.key}">${on ? sourceBadge(source || 'user') : ''}</span>
@@ -73,14 +73,129 @@ window.WB.views = window.WB.views || {};
         <div class="output-grid">${cards}</div>
       </div>`;
     }).join('');
+    const orphans = window.WB.catalog ? window.WB.catalog.orphanOutputs(project?.outputs) : [];
+    const orphanNote = orphans.length
+      ? `<div class="output-orphan">这个项目引用了 ${orphans.length} 个本机没有的技能（${escapeHtml(orphans.join('、'))}）：导入对应技能包即可恢复，或取消勾选。</div>`
+      : '';
     $('#outputSection').innerHTML = `
-      <div class="card-title"><h3>二、产出配置</h3><small>勾选决定后续阶段生成哪些任务与材料</small></div>
+      <div class="card-title"><h3>二、产出配置</h3><small>勾选决定后续阶段生成哪些任务与材料；也可以用「＋ 自定义产出」导入技能包自己加</small></div>
       <div class="output-toolbar">
         <button class="button button-ghost" data-output-preset="all">全选</button>
         <button class="button button-ghost" data-output-preset="core">仅核心产出</button>
         <button class="button button-ghost" data-output-preset="none">清空</button>
+        <button class="button button-ghost" data-skill-import>＋ 自定义产出</button>
       </div>
+      ${orphanNote}
       ${groups}`;
+  }
+
+  /* ── 自定义技能包：粘贴 → 识别 → 加入产出配置 ──
+     技能包用与 skills/<id>/SKILL.md 同一套 frontmatter 约定；识别通过后写进本机技能库，
+     产出配置、过程材料与导出立刻按它工作（AI 生成时技能包正文随调用一起交给服务端）。 */
+
+  const skillDom = (id) => document.getElementById(id);
+
+  /* 页头那行小字：说明「固定技能包 + 可组装」的家底 */
+  function renderSkillSummary() {
+    const el = document.getElementById('skillSummary');
+    if (!el || !window.WB.catalog) return;
+    const custom = window.WB.catalog.count();
+    el.textContent = `技能库：内置 ${window.WB.catalog.builtinCount()} 个固定技能包 · 自定义 ${custom} 个 · 产出配置可在下方自由组装`;
+  }
+
+  function skillPreview() {
+    const box = skillDom('skillImportPreview');
+    if (!box) return null;
+    const add = skillDom('skillImportAdd');
+    const source = skillDom('skillImportText')?.value || '';
+    if (!U.text(source)) {
+      box.innerHTML = '<div class="empty"><strong>还没有内容</strong>粘贴技能包后这里显示识别结果；不确定格式就点「填入示例」。</div>';
+      if (add) add.disabled = true;
+      return null;
+    }
+    const parsed = window.WB.catalog.parse(source);
+    if (!parsed.ok) {
+      box.innerHTML = `<div class="skill-preview is-bad"><strong>识别不通过</strong>
+        <ul>${parsed.errors.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>`;
+      if (add) add.disabled = true;
+      return null;
+    }
+    const skill = parsed.skill;
+    box.innerHTML = `<div class="skill-preview is-ok">
+      <strong>识别通过</strong>
+      <div class="skill-preview-row"><span>产出</span><b>${escapeHtml(skill.title)}</b></div>
+      <div class="skill-preview-row"><span>技能 id</span><b>${escapeHtml(skill.id)}</b></div>
+      <div class="skill-preview-row"><span>阶段</span><b>${escapeHtml(PHASE_LABEL[skill.phase] || skill.phase)}</b></div>
+      <div class="skill-preview-row"><span>类型</span><b>${escapeHtml(KIND_LABEL[skill.kind] || skill.kind)} · 主交付 ${escapeHtml(skill.deliverable)}</b></div>
+      <div class="skill-preview-sections">${skill.sections.map((heading) => `<span>${escapeHtml(heading)}</span>`).join('')}</div>
+    </div>`;
+    if (add) add.disabled = false;
+    return skill;
+  }
+
+  function skillRender() {
+    const list = skillDom('skillImportList');
+    if (!list) return;
+    const catalog = window.WB.catalog;
+    const custom = catalog.list();
+    list.innerHTML = `<div class="skill-list-title">本机技能库
+        <span>内置 ${catalog.builtinCount()} 个固定技能包 · 自定义 ${custom.length} 个</span></div>`
+      + (custom.length
+        ? custom.map((skill) => `<div class="skill-chip">
+            <b>${escapeHtml(skill.title)}</b>
+            <small>${escapeHtml(PHASE_LABEL[skill.phase] || skill.phase)} · ${escapeHtml(KIND_LABEL[skill.kind] || skill.kind)} · ${skill.sections.length} 章 · ${escapeHtml(skill.id)}</small>
+            <button type="button" data-skill-remove="${escapeHtml(skill.id)}" title="从技能库移除">×</button>
+          </div>`).join('')
+        : '<div class="skill-chip is-empty"><small>还没有自定义技能包。粘贴一份试试——点下面的「填入示例」能看格式。</small></div>');
+    skillPreview();
+  }
+
+  function skillOpen() {
+    skillDom('skillImport')?.classList.add('is-open');
+    skillRender();
+    skillDom('skillImportText')?.focus?.();
+  }
+
+  function skillClose() {
+    skillDom('skillImport')?.classList.remove('is-open');
+  }
+
+  function skillAdd() {
+    const textarea = skillDom('skillImportText');
+    const skill = skillPreview();
+    if (!skill) return;
+    const result = window.WB.catalog.add(textarea?.value || '');
+    if (!result.ok) { skillRender(); return; }
+    /* 加入即勾选：这个项目的产出配置立刻多一项 */
+    const project = window.WB.store.state?.project;
+    if (project) {
+      project.outputs[result.skill.key] = true;
+      project.meta.outputs[result.skill.key] = 'user';
+      window.WB.store.save();
+      window.WB.renderTopbar?.();
+    }
+    if (textarea) textarea.value = '';
+    skillRender();
+    window.WB.views.manifest.render();
+    window.WB.renderPanelsMeta?.();
+    window.WB.toast?.(`已加入产出配置：${result.skill.title}${result.updated ? '（已更新）' : ''}`);
+  }
+
+  function skillRemove(id) {
+    const skill = window.WB.catalog.find(id);
+    if (!skill) return;
+    if (!window.confirm(`从技能库移除「${skill.title}」？\n已生成的这份材料会留在项目里，只是界面不再显示它。`)) return;
+    window.WB.catalog.remove(id);
+    skillRender();
+    window.WB.views.manifest.render();
+    window.WB.renderPanelsMeta?.();
+    window.WB.toast?.(`已移除技能包：${skill.title}`);
+  }
+
+  function skillExport() {
+    const text = window.WB.catalog.exportText();
+    if (!text) { window.WB.toast?.('技能库是空的，先加入一个技能包吧'); return; }
+    U.downloadText('自定义技能包.md', text, 'text/markdown;charset=utf-8');
   }
 
   function renderNotes(state) {
@@ -490,6 +605,7 @@ window.WB.views = window.WB.views || {};
     U.gateRole(document.getElementById('interviewStart'), has);
     U.gateAi(document.getElementById('aiFillManifest'), has);
     U.gateAi(document.getElementById('generateMaterials'), has);
+    renderSkillSummary();
     if (!has) {
       $('#basicSection').innerHTML = '<div class="empty"><strong>还没有项目信息表</strong>点击右上角「重新填写」开始。</div>';
       $('#outputSection').innerHTML = '';
@@ -549,6 +665,7 @@ window.WB.views = window.WB.views || {};
     });
 
     panel.addEventListener('click', (event) => {
+      if (event.target.closest('[data-skill-import]')) { skillOpen(); return; }
       const preset = event.target.closest('[data-output-preset]');
       if (!preset || !state().project) return;
       const mode = preset.dataset.outputPreset;
@@ -561,6 +678,30 @@ window.WB.views = window.WB.views || {};
       window.WB.store.save();
       window.WB.views.manifest.render();
       window.WB.renderPanelsMeta?.();
+    });
+
+    /* ── 自定义技能包的弹窗（事件委托在弹窗根节点上，只绑一次）── */
+    const skillBox = document.getElementById('skillImport');
+    if (skillBox) {
+      skillBox.addEventListener('input', (event) => {
+        if (event.target.closest('#skillImportText')) skillPreview();
+      });
+      skillBox.addEventListener('click', (event) => {
+        if (event.target.closest('.close-skill-import') || event.target.closest('#skillImportClose')) { skillClose(); return; }
+        if (event.target.closest('#skillImportSample')) {
+          const box = skillDom('skillImportText');
+          if (box) box.value = window.WB.catalog.template();
+          skillPreview();
+          return;
+        }
+        if (event.target.closest('#skillImportExport')) { skillExport(); return; }
+        if (event.target.closest('#skillImportAdd')) { skillAdd(); return; }
+        const remove = event.target.closest('[data-skill-remove]');
+        if (remove) skillRemove(remove.dataset.skillRemove);
+      });
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && document.getElementById('skillImport')?.classList.contains('is-open')) skillClose();
     });
 
     /* ── 问答式补全的交互（事件委托在弹窗根节点上，只绑一次）── */

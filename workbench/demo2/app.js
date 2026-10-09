@@ -551,6 +551,9 @@ window.WB = window.WB || {};
     menu.className = 'user-menu hidden';
     document.body.appendChild(menu);
 
+    /* 先装好技能目录（内置技能包 + 本机导入的自定义技能包），产出配置再按它渲染 */
+    window.WB.catalog?.load();
+
     renderWizard();
     renderLoginRoles();
     bindGlobal();

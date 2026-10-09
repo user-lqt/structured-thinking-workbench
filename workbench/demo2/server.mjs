@@ -291,8 +291,11 @@ async function handleStructure(req, res) {
   const body = await readJson(req);
   const skillId = String(body.skill || '');
   const skill = await loadSkill(skillId);
-  if (!skill.entry) return send(res, 400, { error: `未注册的 skill：${skillId}` });
-  if (!skill.ready) return send(res, 501, { error: `skill「${skill.entry.title}」尚未接入，请先在 skills/${skillId}/SKILL.md 中定义。` });
+  /* 自定义技能（工作台里导入、存在浏览器本地的技能包）不在 registry 里：由调用方把技能包
+     正文放在 rules 带过来，只用于这一次调用，不写盘、不进 registry、用完即弃。 */
+  const inline = skill.entry ? '' : String(body.rules || '').slice(0, 8_000).trim();
+  if (!skill.entry && !inline) return send(res, 400, { error: `未注册的 skill：${skillId}（自定义技能需要在 rules 里带上技能包正文）` });
+  if (skill.entry && !skill.ready) return send(res, 501, { error: `skill「${skill.entry.title}」尚未接入，请先在 skills/${skillId}/SKILL.md 中定义。` });
   if (!process.env.DEEPSEEK_API_KEY) return send(res, 503, { error: '尚未配置 DeepSeek API Key，请在仓库根目录 .env 中配置。' });
 
   const contract = String(body.contract || '').slice(0, 6000);
@@ -300,7 +303,7 @@ async function handleStructure(req, res) {
 
   const system = [
     '你是校园活动的结构化策划助手，负责把零散输入整理成规范的结构化数据。',
-    skill.rules,
+    skill.entry ? skill.rules : inline,
     `## 本次输出契约（必须严格遵守）\n${contract}`,
     '再次强调：只输出一个 JSON 对象。不要 Markdown、不要代码围栏、不要任何解释文字。'
   ].join('\n\n');

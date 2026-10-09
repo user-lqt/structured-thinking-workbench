@@ -80,7 +80,7 @@ globalThis.window.clearInterval = noop;
 
 const MODULES = [
   'schemas.js', 'materials.js',
-  'core/util.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
+  'core/util.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/tasks.js', 'views/decision.js',
   'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
@@ -168,6 +168,90 @@ const skillDocMismatch = registry.skills.filter((skill) => {
 });
 check('SKILL.md 的交付格式与 registry 一致且含「交付格式」章节', skillDocMismatch.length === 0,
   skillDocMismatch.map((skill) => skill.id).join(', '));
+
+/* ── 3c. 技能目录：自定义技能包的识别与装配 ─── */
+const CAT = window.WB.catalog;
+check('技能目录已就绪（内置技能包固定）', Boolean(CAT) && CAT.builtinCount() === 21, String(CAT?.builtinCount()));
+
+const SKILL_SAMPLE = [
+  '---',
+  'name: safety-brief',
+  'title: 参与者安全须知',
+  'kind: document',
+  'phase: prepare',
+  'output: safetyBrief',
+  'description: 面向参与者的安全须知',
+  'sections:',
+  '  - 一、活动风险提示',
+  '  - 二、着装与物品要求',
+  '  - 三、紧急联络与处置流程',
+  '---',
+  '',
+  '语气克制，逐节写；缺失的事实一律写「待确认」。'
+].join('\n');
+
+const parsedSkill = CAT.parse(SKILL_SAMPLE);
+check('自定义技能包：合法样例识别通过', parsedSkill.ok, (parsedSkill.errors || []).join(' / '));
+check('自定义技能包：身份、章节与正文都对上',
+  parsedSkill.ok && parsedSkill.skill.id === 'safety-brief' && parsedSkill.skill.key === 'safetyBrief'
+  && parsedSkill.skill.phase === 'prepare' && parsedSkill.skill.deliverable === 'word'
+  && parsedSkill.skill.sections.length === 3 && parsedSkill.skill.rules.includes('待确认'),
+  parsedSkill.ok ? JSON.stringify({ key: parsedSkill.skill.key, deliverable: parsedSkill.skill.deliverable }) : '');
+
+const badStruct = CAT.parse(SKILL_SAMPLE.replace('kind: document', 'kind: structure'));
+check('自定义技能包：structure 类型被明确拒绝', !badStruct.ok && badStruct.errors.some((e) => e.includes('structure')),
+  (badStruct.errors || []).join(' / '));
+const badDeliverable = CAT.parse(SKILL_SAMPLE.replace('output: safetyBrief', 'output: safetyBrief\ndeliverable: excel'));
+check('自定义技能包：交付格式与类型不自洽被拒', !badDeliverable.ok && badDeliverable.errors.some((e) => e.includes('deliverable')),
+  (badDeliverable.errors || []).join(' / '));
+const badSections = CAT.parse(SKILL_SAMPLE.replace('  - 二、着装与物品要求\n', '').replace('  - 三、紧急联络与处置流程\n', ''));
+check('自定义技能包：章节不足被拒', !badSections.ok, (badSections.errors || []).join(' / '));
+const graphicSkill = CAT.parse('name: badge-art\ntitle: 胸卡图形\nkind: graphic\nsections:\n  - 一、视觉说明');
+check('自定义技能包：图形类只需 1 条章节即可通过',
+  graphicSkill.ok && graphicSkill.skill.deliverable === 'svg', (graphicSkill.errors || []).join(' / '));
+const commented = CAT.parse('name: brief-x\ntitle: 带注释的技能包\nkind: document   # 文档 / 表格 / 图形\nphase: plan\nsections:  # 章节\n  - 一、甲\n  - 二、乙   # 行内注释');
+check('自定义技能包：行内 # 注释被剥掉，章节一条不脏',
+  commented.ok && commented.skill.sections.join('|') === '一、甲|二、乙', (commented.errors || []).join(' / '));
+const templateParses = CAT.parse(CAT.template());
+check('自定义技能包：界面「填入示例」的模板自身能识别通过',
+  templateParses.ok, (templateParses.errors || []).join(' / '));
+const badKey = CAT.parse(SKILL_SAMPLE.replace('output: safetyBrief', 'output: budgetSheet'));
+check('自定义技能包：产出 key 与内置重名被拒', !badKey.ok && badKey.errors.some((e) => e.includes('内置')),
+  (badKey.errors || []).join(' / '));
+check('自定义技能包：无 frontmatter 的空文本被拒', !CAT.parse('   ').ok);
+
+const added = CAT.add(SKILL_SAMPLE);
+check('自定义技能包：加入后进入产出配置', added.ok, (added.errors || []).join(' / '));
+const schemaOutputs = MANIFEST.sections.find((s) => s.id === 'outputs').items;
+const customItem = U.OUTPUT_ITEMS.find((item) => item.key === 'safetyBrief');
+check('自定义产出：原地装配（schema 与各视图解构的是同一个数组）',
+  U.OUTPUT_ITEMS === schemaOutputs && schemaOutputs.includes(customItem) && Boolean(customItem));
+check('自定义产出：形状与内置一致并带 custom 标记',
+  Boolean(customItem) && customItem.custom === true && customItem.skill === 'safety-brief'
+  && customItem.phase === 'prepare' && customItem.label === '参与者安全须知');
+check('自定义产出：章节已注入 materials（过程材料能生成）',
+  (window.SKILLS.materials['safety-brief']?.sections || []).length === 3);
+check('自定义产出：AI 生成时带得上技能包正文', CAT.isCustom('safety-brief') && CAT.rulesFor('safety-brief').includes('待确认'));
+
+const orphans = CAT.orphanOutputs({ safetyBrief: true, budgetSheet: true, ghostSkill: true });
+check('项目引用本机没有的技能时能被指出来', orphans.join(',') === 'ghostSkill', orphans.join(','));
+
+/* 真渲染一遍：自定义产出必须出现在「产出配置」，并带「自定」标记 */
+const savedProject = store.state.project;
+store.state.project = store.freshProject();
+store.state.project.outputs.safetyBrief = true;
+window.WB.views.manifest.render();
+const customOutputHtml = document.querySelector('#outputSection').innerHTML;
+check('产出配置：渲染出自定义产出并标「自定」',
+  customOutputHtml.includes('data-output="safetyBrief"') && customOutputHtml.includes('custom-mark'));
+check('产出配置：给出「＋ 自定义产出」入口', customOutputHtml.includes('data-skill-import'));
+store.state.project = savedProject;
+
+check('自定义技能包：移除后回到内置清单',
+  CAT.remove('safety-brief') && U.OUTPUT_ITEMS.length === 21
+  && !U.OUTPUT_ITEMS.some((item) => item.key === 'safetyBrief')
+  && !window.SKILLS.materials['safety-brief'] && CAT.count() === 0);
+window.WB.views.manifest.render();
 
 /* ── 3b. 身份、资源台账与演练场景库 ─────────── */
 check('角色为组织者/成员/访客三档',
