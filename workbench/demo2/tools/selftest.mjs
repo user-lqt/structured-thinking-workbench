@@ -245,12 +245,33 @@ const customOutputHtml = document.querySelector('#outputSection').innerHTML;
 check('产出配置：渲染出自定义产出并标「自定」',
   customOutputHtml.includes('data-output="safetyBrief"') && customOutputHtml.includes('custom-mark'));
 check('产出配置：给出「＋ 自定义产出」入口', customOutputHtml.includes('data-skill-import'));
-store.state.project = savedProject;
+check('产出配置：自定义卡片自带删除键，内置产出没有',
+  customOutputHtml.includes('data-skill-remove-inline="safetyBrief"')
+  && !customOutputHtml.includes('data-skill-remove-inline="budgetSheet"'));
 
-check('自定义技能包：移除后回到内置清单',
-  CAT.remove('safety-brief') && U.OUTPUT_ITEMS.length === 21
+/* 技能库列表：每个自定义技能包都有「移除」，并给出「清空技能库」 */
+window.WB.views.manifest.skillLibrary();
+const libraryHtml = document.getElementById('skillImportList').innerHTML;
+check('技能库：自定义技能包带「移除」按钮，并给出「清空技能库」',
+  libraryHtml.includes('data-skill-remove="safety-brief"') && libraryHtml.includes('data-skill-clear')
+  && libraryHtml.includes('>移除<'));
+
+/* 在产出配置的卡片上点 × ：走 skillRemove(ref, true)，技能包与项目勾选一起收掉 */
+window.WB.views.manifest.removeSkill('safetyBrief', true);
+check('自定义产出：从产出配置删除后，技能包移除、项目勾选一并取消、章节定义清掉',
+  CAT.count() === 0 && U.OUTPUT_ITEMS.length === 21
   && !U.OUTPUT_ITEMS.some((item) => item.key === 'safetyBrief')
-  && !window.SKILLS.materials['safety-brief'] && CAT.count() === 0);
+  && !('safetyBrief' in store.state.project.outputs)
+  && !window.SKILLS.materials['safety-brief']);
+
+/* 一键清空：只收自定义的，内置 21 项不动 */
+CAT.add(SKILL_SAMPLE);
+CAT.add('name: badge-art\ntitle: 胸卡图形\nkind: graphic\nsections:\n  - 一、视觉说明');
+window.WB.views.manifest.clearSkills();
+check('技能库：一键清空只收自定义的（内置 21 项不受影响，章节定义一并清掉）',
+  CAT.count() === 0 && U.OUTPUT_ITEMS.length === 21
+  && !window.SKILLS.materials['safety-brief'] && !window.SKILLS.materials['badge-art']);
+store.state.project = savedProject;
 window.WB.views.manifest.render();
 
 /* ── 3b. 身份、资源台账与演练场景库 ─────────── */

@@ -63,6 +63,7 @@ window.WB.views = window.WB.views || {};
             <span class="output-skill ${ready ? 'is-ready' : ''}">${escapeHtml(KIND_LABEL[item.kind] || '')} · ${escapeHtml(item.skill)}</span>
           </span>
           <span id="badge-output-${item.key}">${on ? sourceBadge(source || 'user') : ''}</span>
+          ${item.custom ? `<button type="button" class="output-remove" data-skill-remove-inline="${escapeHtml(item.key)}" title="从技能库移除这个自定义产出">×</button>` : ''}
         </label>`;
       }).join('');
       const done = items.filter((item) => state.materials?.[item.key]).length;
@@ -139,12 +140,13 @@ window.WB.views = window.WB.views || {};
     const catalog = window.WB.catalog;
     const custom = catalog.list();
     list.innerHTML = `<div class="skill-list-title">本机技能库
-        <span>内置 ${catalog.builtinCount()} 个固定技能包 · 自定义 ${custom.length} 个</span></div>`
+        <span>内置 ${catalog.builtinCount()} 个固定技能包 · 自定义 ${custom.length} 个</span>
+        ${custom.length ? '<button type="button" class="skill-clear" data-skill-clear>清空技能库</button>' : ''}</div>`
       + (custom.length
         ? custom.map((skill) => `<div class="skill-chip">
             <b>${escapeHtml(skill.title)}</b>
             <small>${escapeHtml(PHASE_LABEL[skill.phase] || skill.phase)} · ${escapeHtml(KIND_LABEL[skill.kind] || skill.kind)} · ${skill.sections.length} 章 · ${escapeHtml(skill.id)}</small>
-            <button type="button" data-skill-remove="${escapeHtml(skill.id)}" title="从技能库移除">×</button>
+            <button type="button" class="skill-remove" data-skill-remove="${escapeHtml(skill.id)}" title="从技能库移除这个自定义技能包">移除</button>
           </div>`).join('')
         : '<div class="skill-chip is-empty"><small>还没有自定义技能包。粘贴一份试试——点下面的「填入示例」能看格式。</small></div>');
     skillPreview();
@@ -181,15 +183,43 @@ window.WB.views = window.WB.views || {};
     window.WB.toast?.(`已加入产出配置：${result.skill.title}${result.updated ? '（已更新）' : ''}`);
   }
 
-  function skillRemove(id) {
-    const skill = window.WB.catalog.find(id);
+  /* 删除自定义技能包：ref 可以是技能 id，也可以是产出 key。
+     drop=1 表示「连这个产出一起从当前项目里撤掉」（在产出配置的卡片上点 × 时用）。 */
+  function skillRemove(ref, drop = false) {
+    const catalog = window.WB.catalog;
+    const skill = catalog.find(ref) || catalog.list().find((item) => item.key === ref);
     if (!skill) return;
-    if (!window.confirm(`从技能库移除「${skill.title}」？\n已生成的这份材料会留在项目里，只是界面不再显示它。`)) return;
-    window.WB.catalog.remove(id);
+    const tail = drop
+      ? '同时取消它在当前项目里的勾选（已生成的材料保留在项目里）。'
+      : '已生成的材料留在项目里，只是界面不再显示它。';
+    if (!window.confirm(`从技能库移除「${skill.title}」？\n${tail}`)) return;
+    catalog.remove(skill.id);
+    if (drop) {
+      const project = window.WB.store.state?.project;
+      if (project) {
+        delete project.outputs[skill.key];
+        delete project.meta?.outputs?.[skill.key];
+        window.WB.store.save();
+      }
+    }
     skillRender();
     window.WB.views.manifest.render();
     window.WB.renderPanelsMeta?.();
     window.WB.toast?.(`已移除技能包：${skill.title}`);
+  }
+
+  /* 一键清空本机技能库（项目的勾选与已生成材料都保留） */
+  function skillClear() {
+    const catalog = window.WB.catalog;
+    const custom = catalog.list();
+    if (!custom.length) return;
+    const names = custom.map((item) => item.title).join('、');
+    if (!window.confirm(`清空本机技能库？\n将移除 ${custom.length} 个自定义技能包：${names}。\n项目的勾选与已生成的材料都保留。`)) return;
+    for (const skill of custom) catalog.remove(skill.id);
+    skillRender();
+    window.WB.views.manifest.render();
+    window.WB.renderPanelsMeta?.();
+    window.WB.toast?.(`已清空技能库（${custom.length} 个）`);
   }
 
   function skillExport() {
@@ -666,6 +696,14 @@ window.WB.views = window.WB.views || {};
 
     panel.addEventListener('click', (event) => {
       if (event.target.closest('[data-skill-import]')) { skillOpen(); return; }
+      const inlineRemove = event.target.closest('[data-skill-remove-inline]');
+      if (inlineRemove) {
+        /* 卡片本身是 <label>：不拦下来，点 × 会顺手把复选框也切了 */
+        event.preventDefault();
+        event.stopPropagation();
+        skillRemove(inlineRemove.dataset.skillRemoveInline, true);
+        return;
+      }
       const preset = event.target.closest('[data-output-preset]');
       if (!preset || !state().project) return;
       const mode = preset.dataset.outputPreset;
@@ -696,6 +734,7 @@ window.WB.views = window.WB.views || {};
         }
         if (event.target.closest('#skillImportExport')) { skillExport(); return; }
         if (event.target.closest('#skillImportAdd')) { skillAdd(); return; }
+        if (event.target.closest('[data-skill-clear]')) { skillClear(); return; }
         const remove = event.target.closest('[data-skill-remove]');
         if (remove) skillRemove(remove.dataset.skillRemove);
       });
@@ -760,6 +799,10 @@ window.WB.views = window.WB.views || {};
   window.WB.views.manifest = {
     id: 'manifest', label: '项目信息表', render, mount, fieldControl,
     openInterview: interviewOpen,
+    /* 技能库（供自测与外部调用）：渲染列表 / 删一个 / 清空 */
+    skillLibrary: skillRender,
+    removeSkill: skillRemove,
+    clearSkills: skillClear,
     withTimeout,
     AI_POLISH_TIMEOUT,
     closeInterview: interviewClose,
