@@ -19,7 +19,7 @@ window.WB = window.WB || {};
   /* 这些键属于「单个项目」，按项目分文件存储；其余属于全局索引。 */
   const DOC_KEYS = ['project', 'wbs', 'risks', 'riskCompliance', 'options', 'gates', 'gateMeta',
     'materials', 'templates', 'materialTemplates', 'materialSections', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills',
-    'signup', 'log'];
+    'workflow', 'signup', 'log'];
 
   const nowIso = () => new Date().toISOString();
 
@@ -54,6 +54,8 @@ window.WB = window.WB || {};
       poster: {},
       resources: [],
       drills: [],
+      /* 卡片工作流：每张卡片 = 一个 agent（技能包 + 引用资料 + 再要求 → 输出文本），可拖拽排序 */
+      workflow: { cards: [] },
       /* 参与者信息收集（可选能力）：字段定义 + 已收到的记录；关掉开关只是不显示入口，数据不丢 */
       signup: window.WB.signup ? window.WB.signup.fresh() : { enabled: false, fields: [], records: [], applied: 0 },
       log: []
@@ -71,7 +73,8 @@ window.WB = window.WB || {};
       ui: {
         taskView: 'table', materialPhase: 'all', openMaterial: null,
         riskFilter: null, gatePhase: 'plan', assetKind: '', assetPhase: '',
-        resourceKind: '', resourcePhase: '', drillId: null, drillCategory: '', projectFilter: 'active'
+        resourceKind: '', resourcePhase: '', drillId: null, drillCategory: '', projectFilter: 'active',
+        flowImmersive: false   /* 「放大画布」：个人习惯，跟 taskView / 筛选同一层，存在本机索引里 */
       }
     };
   }
@@ -156,6 +159,41 @@ window.WB = window.WB || {};
     };
   }
 
+  /* 卡片工作流的卡片：技能包 + 引用资料 + 再要求 + 输出。资料源固定为工作台里已有的那几份数据，
+     载入 / 导入时把不认识的键过滤掉，老项目没有这个字段也能安全打开（补一个空列表）。 */
+  const WORKFLOW_SOURCES = new Set(['project', 'agenda', 'wbs', 'risks', 'resources', 'assets', 'decision', 'signup', 'materials']);
+  const WORKFLOW_STATUS = { draft: '草稿', done: '已完成', error: '失败' };
+
+  function normaliseCard(raw) {
+    const output = raw?.output && typeof raw.output === 'object' && (text(raw.output.text) || text(raw.output.title))
+      ? { title: text(raw.output.title), text: String(raw.output.text || ''), at: text(raw.output.at), model: text(raw.output.model) }
+      : null;
+    /* 画布坐标：老存档里没有就是 null（界面按依赖层级自动排布后落盘）；
+       坏值一律当没有，免得画布上出现一张坐标是 NaN 的卡片 */
+    const num = (value) => (value === null || value === undefined || value === ''
+      ? null : (Number.isFinite(Number(value)) ? Number(value) : null));
+    return {
+      id: text(raw?.id) || uid('card'),
+      title: text(raw?.title),
+      skill: text(raw?.skill),
+      refs: Array.isArray(raw?.refs) ? raw.refs.filter((key) => WORKFLOW_SOURCES.has(key)) : [],
+      from: Array.isArray(raw?.from) ? raw.from.map((id) => text(id)).filter(Boolean) : [],
+      instruction: String(raw?.instruction || ''),
+      status: WORKFLOW_STATUS[raw?.status] ? raw.status : (output ? 'done' : 'draft'),
+      output,
+      error: text(raw?.error),
+      x: num(raw?.x),
+      y: num(raw?.y),
+      w: num(raw?.w) || 0,
+      collapsed: Boolean(raw?.collapsed),
+      updatedAt: text(raw?.updatedAt) || nowIso()
+    };
+  }
+
+  function normaliseWorkflow(raw) {
+    return { cards: Array.isArray(raw?.cards) ? raw.cards.map(normaliseCard) : [] };
+  }
+
   function migrateDoc(raw) {
     const doc = freshProjectDoc();
     doc.project = raw.project || null;
@@ -194,6 +232,7 @@ window.WB = window.WB || {};
     doc.poster = raw.poster && typeof raw.poster === 'object' ? raw.poster : {};
     doc.resources = Array.isArray(raw.resources) ? raw.resources.map(normaliseResource) : [];
     doc.drills = Array.isArray(raw.drills) ? raw.drills.map(normaliseDrill) : [];
+    doc.workflow = normaliseWorkflow(raw.workflow);
     doc.signup = window.WB.signup ? window.WB.signup.normalise(raw.signup) : doc.signup;
     doc.gates = { ...freshProjectDoc().gates, ...(raw.gates || {}) };
     doc.gateMeta = { ...freshProjectDoc().gateMeta, ...(raw.gateMeta || {}) };
@@ -527,6 +566,8 @@ window.WB = window.WB || {};
     normaliseRisk,
     normaliseResource,
     normaliseDrill,
+    normaliseCard,
+    normaliseWorkflow,
     migrateDoc,
     save,
     replace: (next) => { const doc = migrateDoc(next); applyDoc(doc); save(); },

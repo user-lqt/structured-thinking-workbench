@@ -24,7 +24,7 @@ function die(message) {
 
 /* 发布清单：逐个写出来，不用通配符扫目录——宁可多写几行，也不要误把别的东西带出去。 */
 const CORE = ['util', 'qr', 'signup', 'store', 'skills', 'risk', 'wbs', 'guide', 'drills', 'ai', 'interview', 'markdown', 'ooxml', 'docx', 'export'];
-const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'assets', 'signup', 'help'];
+const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'workflow', 'assets', 'signup', 'help'];
 const PAGES = [
   'index.html', 'signup.html', 'styles.css', 'app.js', 'schemas.js', 'materials.js',
   ...CORE.map((name) => `core/${name}.js`),

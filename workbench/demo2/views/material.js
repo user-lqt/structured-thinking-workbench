@@ -1,4 +1,4 @@
-/* 过程材料：21 类产出的生成、编辑、模板套用与导出，含海报设计器。 */
+/* 过程材料：21 类产出的生成、编辑、模板套用与导出；海报产出改为「四段装配提示词 → AI 生图」。 */
 window.WB = window.WB || {};
 window.WB.views = window.WB.views || {};
 
@@ -739,20 +739,19 @@ window.WB.views = window.WB.views || {};
           ${ready && !isStructure ? `<button class="button button-quiet" data-material-sections-toggle="${item.key}" title="这一份材料生成哪几章：可以删、改名、添加">章节 ${escapeHtml(String(sections.length))}</button>` : ''}
           ${ready && !isStructure ? referenceControl(item.key) : ''}
           ${fillable ? `<button class="button button-ghost" data-material-fill="${item.key}" title="${escapeHtml(`把《${reference.name}》当成一张要填的表：表格、栏目、条目数量、缩进全部照它，只替换识别出的值；离线可用`)}">⇩ 参考表填值</button>` : ''}
-          ${isPoster ? `<button class="button button-ghost" data-poster-open>海报设计器</button>` : ''}
           ${isStructure
             ? `<button class="button button-primary" data-material-goto="decision">前往方案比选</button>
                <button class="button button-ghost" data-material-struct-export>导出 Markdown</button>`
             : `<button class="button button-primary" data-material-generate="${item.key}" ${ready && !aiOffline ? '' : 'disabled'} title="${aiOffline ? escapeHtml(U.AI_OFFLINE_HINT) : ''}">${doc ? '重新生成' : 'AI 生成'}</button>
                ${doc ? reframeButton(item.key, doc) : ''}
-               ${doc ? `<button class="button button-ghost" data-material-toggle="${item.key}">${open ? '收起' : '编辑'}</button>` : ''}
+               ${doc && !isPoster ? `<button class="button button-ghost" data-material-toggle="${item.key}">${open ? '收起' : '编辑'}</button>` : ''}
                ${doc ? downloadButtons(item) : ''}`}
         </div>
       </header>
       ${sectionsOpen.has(item.key) ? sectionPanel(item.key) : ''}
       ${fillOpen.has(item.key) ? fillPanel(item.key) : ''}
-      ${open && doc ? materialEditor(item.key, doc) : ''}
-      ${isPoster && open ? posterEditor() : ''}
+      ${open && doc && !isPoster ? materialEditor(item.key, doc) : ''}
+      ${isPoster ? posterCardBody() : ''}
     </article>`;
   }
 
@@ -1124,125 +1123,114 @@ window.WB.views = window.WB.views || {};
     input.value = '';
     input.click();
   }
-  /* ── 海报设计器（离线可用，不依赖 AI） ── */
+  /* ── 生图提示词装配：项目信息表 ＋ 海报文案 ＋ 视觉设计说明 ＋ 追加要求 ──
+     在线排版器已下线：这张产出只负责把四段来源拼成提示词，成品由图像模型产出。 */
 
-  const POSTER_THEMES = {
-    tech: { label: '科技青', from: '#0f7a6c', to: '#0b3d5c', accent: '#7ee8d3' },
-    warm: { label: '活力橙', from: '#d2691e', to: '#8c2f39', accent: '#ffd8a8' },
-    violet: { label: '学院紫', from: '#4c3f91', to: '#221a4a', accent: '#c3b6ff' },
-    mono: { label: '极简灰', from: '#2f3437', to: '#1a1d1f', accent: '#e6e8ea' }
-  };
+  const POSTER_COPY_HEADING = '一、海报文案';
+  const POSTER_VISUAL_HEADING = '二、视觉设计说明';
 
-  const posterDesign = () => {
-    const base = state().poster || {};
-    const basic = state().project?.basic || {};
-    return {
-      title: base.title ?? basic.name ?? '校园活动',
-      subtitle: base.subtitle ?? (basic.content ? String(basic.content).slice(0, 22) : ''),
-      time: base.time ?? (U.scheduleSummary(basic) || [basic.date, basic.start].filter(Boolean).join(' ')),
-      place: base.place ?? basic.venue ?? '',
-      org: base.org ?? basic.organizer ?? '',
-      slogan: base.slogan ?? '',
-      theme: base.theme || 'tech',
-      layout: base.layout || 'center'
+  /* 按标题前缀取两节正文；标题被改名或材料没生成时退回该材料全文
+     （只在两节都没匹配上时退全文，免得同一段正文在提示词里出现两遍） */
+  function posterSections() {
+    const doc = state().materials?.poster;
+    const list = Array.isArray(doc?.sections) ? doc.sections : [];
+    const pick = (prefix) => {
+      const hit = list.find((section) => U.text(section?.heading).trim().startsWith(prefix));
+      return hit ? U.text(hit.body) : '';
     };
-  };
-
-  function posterSvg(design) {
-    const theme = POSTER_THEMES[design.theme] || POSTER_THEMES.tech;
-    const w = 1080;
-    const h = 1440;
-    const center = design.layout === 'center';
-    const align = center ? 'middle' : 'start';
-    const x = center ? w / 2 : 96;
-    const titleSize = U.text(design.title).length > 12 ? 76 : 96;
-    const meta = [design.time && `时间　${design.time}`, design.place && `地点　${design.place}`, design.org && `主办　${design.org}`]
-      .filter(Boolean);
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${theme.from}"/><stop offset="100%" stop-color="${theme.to}"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="30%" r="70%">
-      <stop offset="0%" stop-color="${theme.accent}" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="${theme.accent}" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="${w}" height="${h}" fill="url(#bg)"/>
-  <rect width="${w}" height="${h}" fill="url(#glow)"/>
-  <g fill="none" stroke="${theme.accent}" stroke-opacity="0.28" stroke-width="2">
-    <circle cx="${w - 120}" cy="180" r="190"/><circle cx="${w - 120}" cy="180" r="130"/>
-    <circle cx="120" cy="${h - 200}" r="160"/><circle cx="120" cy="${h - 200}" r="100"/>
-  </g>
-  <text x="${x}" y="330" text-anchor="${align}" fill="${theme.accent}" font-family="Segoe UI, Microsoft YaHei" font-size="34" letter-spacing="8">CAMPUS  EVENT</text>
-  <text x="${x}" y="450" text-anchor="${align}" fill="#ffffff" font-family="Microsoft YaHei, Segoe UI" font-size="${titleSize}" font-weight="700">${escapeHtml(U.text(design.title).slice(0, 20))}</text>
-  ${design.subtitle ? `<text x="${x}" y="530" text-anchor="${align}" fill="#ffffff" fill-opacity="0.86" font-family="Microsoft YaHei" font-size="40">${escapeHtml(U.text(design.subtitle).slice(0, 24))}</text>` : ''}
-  <rect x="${center ? w / 2 - 60 : 96}" y="600" width="120" height="6" fill="${theme.accent}" rx="3"/>
-  ${meta.map((line, index) => `<text x="${x}" y="${700 + index * 74}" text-anchor="${align}" fill="#ffffff" fill-opacity="0.95" font-family="Microsoft YaHei" font-size="44">${escapeHtml(U.text(line).slice(0, 30))}</text>`).join('')}
-  ${design.slogan ? `<text x="${x}" y="${h - 260}" text-anchor="${align}" fill="${theme.accent}" font-family="Microsoft YaHei" font-size="46" font-weight="600">${escapeHtml(U.text(design.slogan).slice(0, 24))}</text>` : ''}
-  <text x="${x}" y="${h - 150}" text-anchor="${align}" fill="#ffffff" fill-opacity="0.6" font-family="Microsoft YaHei" font-size="28">本海报由工作台自动排版 · 请核对时间地点后再发布</text>
-</svg>`;
+    const copy = pick(POSTER_COPY_HEADING);
+    const visual = pick(POSTER_VISUAL_HEADING);
+    if (!copy && !visual && list.length) {
+      return {
+        copy: list.map((section) => `${U.text(section.heading)}\n${U.text(section.body)}`).join('\n\n'),
+        visual: ''
+      };
+    }
+    return { copy, visual };
   }
 
-  function posterEditor() {
-    const design = posterDesign();
-    const options = Object.entries(POSTER_THEMES)
-      .map(([key, theme]) => `<option value="${key}" ${design.theme === key ? 'selected' : ''}>${escapeHtml(theme.label)}</option>`).join('');
-    return `<div class="material-body poster-body">
-      <div class="poster-form">
-        <div class="card-title"><h3>海报设计器</h3><small>离线可用的自动排版；改完即时预览，可导出 SVG / PNG</small></div>
-        <label><span>主标题</span><input data-poster="title" value="${escapeHtml(design.title)}" /></label>
-        <label><span>副标题</span><input data-poster="subtitle" value="${escapeHtml(design.subtitle)}" /></label>
-        <label><span>时间</span><input data-poster="time" value="${escapeHtml(design.time)}" /></label>
-        <label><span>地点</span><input data-poster="place" value="${escapeHtml(design.place)}" /></label>
-        <label><span>主办</span><input data-poster="org" value="${escapeHtml(design.org)}" /></label>
-        <label><span>标语</span><input data-poster="slogan" value="${escapeHtml(design.slogan)}" placeholder="如：让创意被看见" /></label>
-        <label><span>配色</span><select data-poster="theme">${options}</select></label>
-        <label><span>版式</span><select data-poster="layout">
-          <option value="center" ${design.layout === 'center' ? 'selected' : ''}>居中</option>
-          <option value="left" ${design.layout === 'left' ? 'selected' : ''}>左对齐</option>
-        </select></label>
-        <div class="poster-actions">
-          <button class="button button-ghost" data-poster-download="svg">下载 SVG</button>
-          <button class="button button-ghost" data-poster-download="png">下载 PNG</button>
-          <button class="button button-ghost" data-poster-reset>恢复项目信息</button>
-        </div>
-      </div>
-      <div class="poster-preview">
-        <p class="preview-hint">预览（导出尺寸 1080 × 1440）</p>
-        ${posterSvg(design)}
-      </div>
-      ${posterImageBlock()}
-    </div>`;
+  /* 第一段：项目信息表（state.project.basic），只发填过的字段 */
+  function posterProjectBrief() {
+    const basic = state().project?.basic || {};
+    const lines = [];
+    if (basic.name) lines.push(`活动名称：${basic.name}`);
+    const when = U.scheduleSummary(basic) || [basic.date, basic.start].filter(Boolean).join(' ');
+    if (when) lines.push(`时间：${when}`);
+    if (basic.venue) lines.push(`地点：${basic.venue}`);
+    if (basic.organizer) lines.push(`主办：${basic.organizer}`);
+    if (basic.audience) lines.push(`面向对象：${basic.audience}`);
+    if (basic.content) lines.push(`活动内容：${basic.content}`);
+    return lines.join('\n');
   }
+
+  /* 界面预览与真正发给模型的都是这一份，避免「看到的」和「发出去的」不是一回事 */
+  function posterPromptText() {
+    const { copy, visual } = posterSections();
+    const brief = U.text(state().poster?.brief);
+    const hasMaterial = Boolean(copy || visual);
+    const empty = hasMaterial ? '（本节为空）' : '（还没生成海报材料）';
+    const parts = [
+      `【项目信息表】\n${posterProjectBrief() || '（项目信息表还没填）'}`,
+      `【一、海报文案】\n${copy || empty}`,
+      `【二、视觉设计说明】\n${visual || empty}`
+    ];
+    if (brief) parts.push(`【追加要求】\n${brief}`);
+    const name = state().project?.basic?.name || '校园活动';
+    return `为校园活动「${name}」创作宣传视觉。\n\n${parts.join('\n\n')}\n\n不要生成未提供的时间、地点、主办方、品牌、二维码、数字或可读文字。`;
+  }
+
+  /* 手改优先：提示词框里的文字才是真正要发出去的那一份（没手改时就是四段装配的结果）。
+     手改之后就锁定，不再被四段刷新覆盖——要回到自动装配点「重新装配」。 */
+  const posterPromptUsed = () => U.text(state().poster?.prompt) || posterPromptText();
+  const posterPromptEdited = () => Boolean(U.text(state().poster?.prompt));
 
   /* ── AI 生图（YosHub）：服务端落盘到 demo2/generated/，并登记进素材库 ── */
 
   function imageCard(image, index) {
+    const canWrite = U.canOperate();
     return `<figure class="poster-ai-item">
-      <img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.prompt || 'AI 生成图片')}" loading="lazy" />
+      <img src="${escapeHtml(image.url)}" alt="${escapeHtml(U.text(image.prompt || 'AI 生成图片').slice(0, 60))}" loading="lazy" />
       <figcaption>
         <small>${escapeHtml(image.model || 'AI')} · ${escapeHtml(U.fmtDateTime(image.createdAt))}</small>
         <span class="poster-ai-actions">
           <a class="button button-ghost" href="${escapeHtml(image.url)}" target="_blank" rel="noreferrer">打开</a>
-          <button class="button button-ghost" data-ai-image-remove="${index}">删除</button>
+          <button class="button button-ghost" data-ai-image-remove="${index}" ${canWrite ? '' : 'disabled'}>删除</button>
         </span>
       </figcaption>
     </figure>`;
   }
 
-  function posterImageBlock() {
+  /* 海报卡片主体：没有设计器、没有正文编辑面——四段提示词装配好，按一下出图 */
+  function posterCardBody() {
     const images = state().poster?.images || [];
     const ready = Boolean(window.WB.ai.imageReady);
     const canWrite = U.canOperate();
+    const doc = state().materials?.poster;
+    const { copy, visual } = posterSections();
+    const edited = posterPromptEdited();
     const hint = !ready
-      ? '未配置 YOSHUB_API_KEY，生图不可用；海报设计器、SVG 导出等离线功能不受影响。'
-      : '模型不擅长生成中文文字，建议让画面留白，文字交给海报设计器叠加。生成的图片会自动登记到素材库。';
-    return `<div class="poster-ai">
-      <div class="card-title"><h3>AI 生图</h3><small>由 YosHub 生成并落盘到本地服务，仅作视觉参考</small></div>
+      ? '未配置 YOSHUB_API_KEY，生图不可用；项目信息、海报材料与导出不受影响。'
+      : edited
+        ? '提示词已手改：生成时发的就是框里那一段。点「重新装配」可以丢掉手改，回到四段自动装配。'
+        : !doc
+        ? '还没生成《海报 / 宣传图》材料：先点卡片右上角「AI 生成」，拿到「海报文案」与「视觉设计说明」，提示词会更完整。'
+        : (copy || visual)
+          ? '提示词已按「项目信息表 ＋ 海报文案 ＋ 视觉设计说明 ＋ 追加要求」拼好；改上面的追加要求会即时更新。'
+          : '这份材料里没找到「一、海报文案」「二、视觉设计说明」，提示词暂用材料全文。';
+    return `<div class="material-body poster-ai">
+      <div class="card-title"><h3>AI 生图（装配提示词）</h3><small>由 YosHub 生成并落盘到本地服务，自动登记素材库</small></div>
+      <label class="poster-brief"><span>追加要求（只进提示词，不改材料正文）</span>
+        <textarea data-ai-image-brief rows="2" placeholder="如「竖版 1080 × 1440，青蓝渐变，中上部留出标题空白」" ${canWrite ? '' : 'disabled'}>${escapeHtml(state().poster?.brief || '')}</textarea>
+      </label>
+      <div class="poster-prompt">
+        <div class="poster-prompt-head">
+          <p class="preview-hint">${edited ? '完整提示词（已手改：不再随四段自动更新）' : '完整提示词（四段自动装配，可直接改）'}</p>
+          <button class="button button-quiet" data-ai-image-prompt-reset ${edited && canWrite ? '' : 'disabled'} title="${escapeHtml(edited ? '丢掉手改，按项目信息表 ＋ 海报文案 ＋ 视觉设计说明 ＋ 追加要求重新装配' : '当前就是四段装配的结果，不用重装')}">重新装配</button>
+        </div>
+        <textarea class="poster-prompt-text" data-ai-image-prompt rows="10" spellcheck="false" placeholder="这里是真正发给模型的提示词：可以删掉不想要的约束，也可以补上风格、构图与尺寸" ${canWrite ? '' : 'disabled'}>${escapeHtml(posterPromptUsed())}</textarea>
+      </div>
       <div class="poster-ai-input">
-        <textarea data-ai-image-prompt rows="2" placeholder="描述画面：如「科技感光束与悬浮立方体，青蓝渐变，中上部留出标题空白」" ${canWrite ? '' : 'disabled'}></textarea>
-        <button class="button button-primary" data-ai-image ${ready && canWrite ? '' : 'disabled'} title="${ready ? '' : escapeHtml(hint)}"><span>✦</span> 生成图片</button>
+        <button class="button button-primary" data-ai-image ${ready && canWrite ? '' : 'disabled'} title="${escapeHtml(ready ? '' : hint)}"><span>✦</span> 生成图片</button>
       </div>
       <p class="help-muted">${escapeHtml(hint)}</p>
       <div class="poster-ai-gallery">
@@ -1255,16 +1243,15 @@ window.WB.views = window.WB.views || {};
     const current = state();
     if (!U.canOperate()) { window.WB.toast('只读访客不能生成图片'); return; }
     if (!window.WB.ai.imageReady) { window.WB.toast('未配置 YOSHUB_API_KEY，生图不可用'); return; }
-    const promptEl = button.closest('.poster-ai')?.querySelector('[data-ai-image-prompt]');
-    const prompt = U.text(promptEl?.value);
-    if (!prompt) { window.WB.toast('先写一句画面描述'); promptEl?.focus(); return; }
+    /* 提示词默认由四段装配，但允许在框里直接改：框里是什么就发什么 */
+    const promptField = button.closest('.poster-ai')?.querySelector('[data-ai-image-prompt]');
+    const prompt = U.text(promptField?.value);
+    if (!prompt) { window.WB.toast('提示词是空的：写一句，或点「重新装配」'); promptField?.focus(); return; }
     const label = button.innerHTML;
     button.disabled = true;
     button.innerHTML = '生成中…';
     try {
-      const basic = current.project?.basic || {};
-      const full = `为校园活动「${basic.name || '校园活动'}」创作宣传视觉。${prompt}。不要生成未提供的时间、地点、主办方、品牌、二维码、数字或可读文字。`;
-      const result = await window.WB.ai.generateImage(full);
+      const result = await window.WB.ai.generateImage(prompt);
       current.poster ||= {};
       current.poster.images ||= [];
       current.poster.images.unshift({
@@ -1293,26 +1280,6 @@ window.WB.views = window.WB.views || {};
     }
   }
 
-  function downloadPoster(format) {
-    const svg = posterSvg(posterDesign());
-    const name = U.safeFileName(store().projectName());
-    if (format === 'svg') {
-      U.downloadBlob(`${name}-海报.svg`, new Blob([svg], { type: 'image/svg+xml' }));
-      return;
-    }
-    const image = new Image();
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 1080;
-      canvas.height = 1440;
-      canvas.getContext('2d').drawImage(image, 0, 0, 1080, 1440);
-      URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => blob && U.downloadBlob(`${name}-海报.png`, blob), 'image/png');
-    };
-    image.onerror = () => { URL.revokeObjectURL(url); window.WB.toast('PNG 导出失败，可改用 SVG'); };
-    image.src = url;
-  }
 
   /* ── 批量渲染 ─────────────────────────── */
 
@@ -1770,32 +1737,25 @@ window.WB.views = window.WB.views || {};
       if (reframe) { reframeMaterial(reframe.dataset.materialReframe); return; }
       const reframeUndo = event.target.closest('[data-material-reframe-undo]');
       if (reframeUndo) { undoReframe(reframeUndo.dataset.materialReframeUndo); return; }
-      const posterOpen = event.target.closest('[data-poster-open]');
-      if (posterOpen) {
-        current.ui.openMaterial = 'poster';
-        store().save();
-        render();
-        return;
-      }
-      const posterDownload = event.target.closest('[data-poster-download]');
-      if (posterDownload) { downloadPoster(posterDownload.dataset.posterDownload); return; }
       const aiImage = event.target.closest('[data-ai-image]');
       if (aiImage) { runImageGen(aiImage); return; }
       const removeImage = event.target.closest('[data-ai-image-remove]');
       if (removeImage) {
+        if (!U.canOperate()) { window.WB.toast('只读访客不能删除图片'); return; }
         const images = current.poster?.images || [];
         images.splice(Number(removeImage.dataset.aiImageRemove), 1);
         store().save();
         render();
         return;
       }
-      if (event.target.closest('[data-poster-reset]')) {
-        /* 只重置排版文案，保留已生成的图片 */
-        const images = current.poster?.images;
-        current.poster = images ? { images } : {};
+      const promptReset = event.target.closest('[data-ai-image-prompt-reset]');
+      if (promptReset) {
+        if (!U.canOperate()) { window.WB.toast('只读访客不能改动提示词'); return; }
+        state().poster ||= {};
+        delete state().poster.prompt;
         store().save();
         render();
-        window.WB.toast('已按项目信息重置海报文案');
+        window.WB.toast('已按四段重新装配提示词');
         return;
       }
       const phaseButton = event.target.closest('[data-material-phase]');
@@ -1809,6 +1769,22 @@ window.WB.views = window.WB.views || {};
     /* 改完一块就写回：不动其余正文，也不重绘，避免打断输入焦点 */
     panel.addEventListener('focusout', (event) => {
       if (!U.canOperate()) return;
+      /* 提示词框：手改的内容落盘（全删掉＝没手改，下次按四段装配） */
+      const promptField = event.target.closest('[data-ai-image-prompt]');
+      if (promptField) {
+        state().poster ||= {};
+        state().poster.prompt = U.text(promptField.value) ? promptField.value : '';
+        store().save();
+        return;
+      }
+      /* 追加要求只进提示词，不写回材料正文；打字时先改内存，失焦才落盘 */
+      const briefField = event.target.closest('[data-ai-image-brief]');
+      if (briefField) {
+        state().poster ||= {};
+        state().poster.brief = briefField.value;
+        store().save();
+        return;
+      }
       const cell = event.target.closest('td[data-col], th[data-col]');
       if (cell) { commitTable(cell.closest('table')); return; }
       const block = event.target.closest('[data-material-block]');
@@ -1892,6 +1868,31 @@ window.WB.views = window.WB.views || {};
 
     panel.addEventListener('input', (event) => {
       const current = state();
+      /* 提示词框：手改即锁定（只改内存不落盘，落盘走 focusout）；
+         顺手把标题与「重新装配」的可用状态改掉，免得界面还写着「自动装配」 */
+      const promptField = event.target.closest('[data-ai-image-prompt]');
+      if (promptField) {
+        current.poster ||= {};
+        current.poster.prompt = promptField.value;
+        const on = Boolean(U.text(promptField.value));
+        const head = panel.querySelector('.poster-prompt-head .preview-hint');
+        if (head) head.textContent = on ? '完整提示词（已手改：不再随四段自动更新）' : '完整提示词（四段自动装配，可直接改）';
+        const reset = panel.querySelector('[data-ai-image-prompt-reset]');
+        if (reset) reset.disabled = !on;
+        return;
+      }
+      /* 追加要求：边打字边刷新提示词框，只改内存不落盘（落盘走 focusout）；
+         已经手改过提示词就不动它——手改优先 */
+      const briefField = event.target.closest('[data-ai-image-brief]');
+      if (briefField) {
+        current.poster ||= {};
+        current.poster.brief = briefField.value;
+        if (!U.text(current.poster.prompt)) {
+          const box = panel.querySelector('[data-ai-image-prompt]');
+          if (box) box.value = posterPromptText();
+        }
+        return;
+      }
       /* 填值表：打字只改内存，不落盘不重绘，免得每敲一个字都重排整页 */
       const fillInput = event.target.closest('[data-fill-input]');
       if (fillInput) {
@@ -1908,15 +1909,6 @@ window.WB.views = window.WB.views || {};
           const seen = readTable(table, block);
           syncDerivedCells(table, exporters().applyTotals(seen.header, seen.rows));
         }
-      }
-      const posterField = event.target.closest('[data-poster]');
-      if (posterField) {
-        current.poster ||= {};
-        current.poster[posterField.dataset.poster] = posterField.value;
-        store().save();
-        const preview = panel.querySelector('.poster-preview');
-        if (preview) preview.innerHTML = `<p class="preview-hint">预览（导出尺寸 1080 × 1440）</p>${posterSvg(posterDesign())}`;
-        return;
       }
       /* 改章节名：打字只改内存不重排，免得标题改到一半、正文因为「对不上号」被清成待补充 */
       const sectionName = event.target.closest('[data-section-name]');
@@ -2019,5 +2011,5 @@ window.WB.views = window.WB.views || {};
     });
   }
 
-  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, chosenForms, sectionListOf, setSections, syncSectionsToDoc, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterSvg: () => posterSvg(posterDesign()) };
+  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, chosenForms, sectionListOf, setSections, syncSectionsToDoc, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterPrompt: () => posterPromptText(), posterPromptUsed: () => posterPromptUsed(), posterPromptEdited: () => posterPromptEdited() };
 }());

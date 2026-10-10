@@ -82,7 +82,7 @@ const MODULES = [
   'schemas.js', 'materials.js',
   'core/util.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/agenda.js', 'views/tasks.js', 'views/decision.js',
-  'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
+  'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/workflow.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
 ];
 
@@ -282,13 +282,18 @@ check('契约按章节形式指定表格', contractTable.includes('管道表格'
 check('契约不该把没标过的章节当成表格', contractUnmarked.includes('正文段落'), contractUnmarked.slice(0, 90));
 
 /* 交付格式：技能包要声明主交付格式，且与产出类型自洽 */
-const DELIVERABLE_BY_KIND = { table: 'excel', document: 'word', graphic: 'svg' };
+/* 每种产出类型允许的主交付格式（合法取值集合）：图形型既能出矢量图，也能只留 Markdown 记录 */
+/* 内置 registry 的期望值：kind 有专属集合就按集合；structure 仍走 markdown / none */
+const DELIVERABLE_BY_KIND = { table: ['excel'], document: ['word'], graphic: ['svg', 'markdown'] };
 const deliverableBad = registry.skills.filter((skill) => {
   if (!registry.deliverables || !registry.deliverables[skill.deliverable]) return true;
-  return DELIVERABLE_BY_KIND[skill.kind]
-    ? skill.deliverable !== DELIVERABLE_BY_KIND[skill.kind]
-    : !['markdown', 'none'].includes(skill.deliverable);
+  const allowed = DELIVERABLE_BY_KIND[skill.kind];
+  return allowed ? !allowed.includes(skill.deliverable) : !['markdown', 'none'].includes(skill.deliverable);
 });
+const posterSkill = registry.skills.find((skill) => skill.id === 'poster');
+check('海报技能声明 markdown 交付，且 svg 图例不再绑定海报',
+  posterSkill?.deliverable === 'markdown' && registry.deliverables.svg.includes('矢量图')
+  && !registry.deliverables.svg.includes('海报'), JSON.stringify(posterSkill));
 check('每个技能都声明了合法的交付格式', deliverableBad.length === 0,
   deliverableBad.map((skill) => `${skill.id}:${skill.deliverable}`).join(', '));
 
@@ -589,7 +594,7 @@ check('示例项目自带占用冲突用于演示',
   state.resources.some((item) => Number(item.assigned) > Number(item.available)));
 check('示例演练记录保留处置步骤',
   state.drills.every((item) => item.steps.length >= 4 && item.steps.every((step) => step.text)));
-check('海报配置已随项目还原', Boolean(state.poster && state.poster.title), JSON.stringify(state.poster));
+check('示例项目不再带旧海报设计器字段', !state.poster.title && !state.poster.slogan && !state.poster.theme, JSON.stringify(state.poster));
 check('每条风险都有四要素（触发/预防/响应/升级）',
   state.risks.every((risk) => risk.trigger && risk.prevention && risk.response && risk.escalation));
 
@@ -1035,8 +1040,10 @@ if (savedUser) store.setUser(savedUser); else store.signOut();
 window.WB.views.material.render();
 
 /* ── 7. 项目包往返 ──────────────────────── */
+/* 生图结果是这张产出唯一的持久化产物：先放一份快照，往返才有东西可比 */
+state.poster = { images: [{ url: '/generated/demo-r53.png', model: 'gpt-image-2', prompt: '装配提示词', width: 1024, height: 1536, createdAt: new Date().toISOString() }] };
 const bundle = store.exportBundle();
-check('项目包包含海报配置', Boolean(bundle.poster && bundle.poster.title));
+check('项目包包含生图结果', Boolean(bundle.poster && bundle.poster.images?.length));
 check('项目包包含界面偏好', Boolean(bundle.ui && bundle.ui.taskView));
 check('项目包包含资源与演练字段', Array.isArray(bundle.resources) && Array.isArray(bundle.drills));
 /* reset/import 都作用在同一个 state 对象上，所以先固化快照再比对 */
@@ -1045,7 +1052,7 @@ const snapshot = JSON.parse(JSON.stringify({
   wbs: state.wbs.length,
   risks: state.risks.length,
   options: state.options.selected.map((o) => o.name).join('|'),
-  slogan: state.poster.slogan
+  posterImageCount: state.poster.images.length
 }));
 const projectsBefore = store.state.projects.length;
 store.reset();
@@ -1058,7 +1065,7 @@ check('往返后项目信息一致', round.project?.basic?.name === snapshot.nam
 check('往返后任务数一致', round.wbs.length === snapshot.wbs, `${round.wbs.length} vs ${snapshot.wbs}`);
 check('往返后风险数一致', round.risks.length === snapshot.risks);
 check('往返后比选推荐不变', round.options.selected.map((o) => o.name).join('|') === snapshot.options);
-check('往返后海报配置一致', round.poster?.slogan === snapshot.slogan);
+check('往返后生图结果一致', (round.poster?.images || []).length === snapshot.posterImageCount);
 check('导入动作写入变更记录', round.log.some((entry) => entry.kind === 'import'));
 
 /* ── 7b. 多项目：新建 / 切换 / 重命名 / 复制 / 归档 / 删除 ── */
@@ -1177,7 +1184,7 @@ check('全占位项目没有可自动确认的检查点', ghostReview.ready === 
 /* ── 汇总 ──────────────────────────────── */
 /* ── 9. 视图渲染冒烟：每个视图都要能出表且不抛错 ── */
 const VIEW_IDS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk',
-  'resources', 'drills', 'material', 'assets', 'signup', 'help'];
+  'resources', 'drills', 'material', 'workflow', 'assets', 'signup', 'help'];
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const scriptOrder = [...html.matchAll(/src="\.\/(.+?)"/g)].map((match) => match[1]);
 check('自测的模块加载顺序与 index.html 脚本顺序一致',
@@ -1219,6 +1226,129 @@ for (const id of VIEW_IDS) {
   } catch (error) {
     check(`视图「${id}」mount 无异常`, false, `${error.message}`);
   }
+}
+
+/* ── 9j. 海报产出：四段装配提示词、无设计器入口、只读不可写 ──
+   在线排版器已下线，这张产出只剩一条路：装配提示词 → 图像模型生图。 */
+{
+  const posterCardHtml = (html) => (html.match(/<article class="material-card[^>]*data-material="poster"[\s\S]*?<\/article>/) || [''])[0];
+  const view = window.WB.views.material;
+  const savedSections = state.materials.poster;
+  const savedBrief = state.poster?.brief;
+  const savedPrompt = state.poster?.prompt;
+  /* 这一节量的是「可写角色下卡片长什么样」，先明确切成组织者，结束再还原 */
+  const savedUser9j = store.state.user;
+  store.setUser({ name: '测试同学', role: 'organizer' });
+  state.project.outputs.poster = true;
+
+  state.materials.poster = {
+    title: '海报 / 宣传图',
+    sections: [
+      { heading: '一、海报文案', body: '主标题：创想之夜\n标语：让创意被看见' },
+      { heading: '二、视觉设计说明', body: '主色深青 #0f7a6c，标题居中，字号占画布 1/10' },
+      { heading: '三、尺寸与投放渠道', body: '竖版 1080×1440，投放于公众号与展板' }
+    ]
+  };
+  delete state.poster.brief;
+  view.render();
+  const cardHtml = posterCardHtml(document.getElementById('materialList').innerHTML);
+
+  check('海报卡片渲染出生图区与追加要求框',
+    cardHtml.includes('data-ai-image-brief') && cardHtml.includes('poster-prompt-text') && cardHtml.includes('data-ai-image'),
+    `卡片长度 ${cardHtml.length}`);
+  check('海报卡片没有设计器入口 / 设计器字段 / 正文编辑面',
+    !cardHtml.includes('data-poster') && !cardHtml.includes('海报设计器')
+    && !cardHtml.includes('contenteditable') && !cardHtml.includes('data-material-toggle')
+    && !cardHtml.includes('data-material-block'),
+    cardHtml.slice(0, 120));
+  /* 以前 window.WB.ai 只导出 ready，视图读 imageReady 只能拿到 undefined，生图按钮永远置灰 */
+  check('生图能力经 window.WB.ai.imageReady 暴露',
+    typeof window.WB.ai.imageReady === 'boolean', String(window.WB.ai.imageReady));
+  check('未配置生图 Key 时按钮置灰并写明原因',
+    /data-ai-image\s+disabled/.test(cardHtml) && cardHtml.includes('YOSHUB_API_KEY'),
+    cardHtml.match(/.{0,40}YOSHUB_API_KEY.{0,20}/)?.[0] || '');
+
+  const prompt = view.posterPrompt();
+  check('提示词四段装配：项目信息表 + 海报文案 + 视觉设计说明',
+    prompt.includes('【项目信息表】') && prompt.includes('【一、海报文案】\n主标题：创想之夜')
+    && prompt.includes('【二、视觉设计说明】\n主色深青 #0f7a6c')
+    && prompt.includes('不要生成未提供的时间、地点、主办方、品牌、二维码、数字或可读文字'),
+    prompt.slice(0, 160));
+  check('提示词不含未选中的第三段（尺寸与投放渠道）',
+    !prompt.includes('竖版 1080×1440，投放于公众号与展板'));
+
+  /* 完整提示词是可改的：框里是什么，生成时就发什么 */
+  check('完整提示词渲染成可直接改的输入框',
+    cardHtml.includes('<textarea class="poster-prompt-text" data-ai-image-prompt')
+    && cardHtml.includes('data-ai-image-prompt-reset')
+    && !cardHtml.includes('<pre class="poster-prompt-text"')
+    && !/<textarea class="poster-prompt-text"[^>]*disabled>/.test(cardHtml),
+    cardHtml.match(/.{0,40}data-ai-image-prompt.{0,60}/)?.[0] || '');
+  state.poster.prompt = '手改后的提示词：竖版，极简留白';
+  check('手改后以手改的那份为准，四段装配不再盖掉它',
+    view.posterPromptUsed() === '手改后的提示词：竖版，极简留白' && view.posterPromptEdited() === true
+    && view.posterPrompt().includes('【项目信息表】'),
+    view.posterPromptUsed().slice(0, 40));
+  view.render();
+  const editedCard = posterCardHtml(document.getElementById('materialList').innerHTML);
+  check('手改后卡片回填手改内容，并给出「重新装配」入口',
+    editedCard.includes('手改后的提示词：竖版，极简留白') && editedCard.includes('已手改')
+    && !/data-ai-image-prompt-reset\s+disabled/.test(editedCard),
+    editedCard.match(/.{0,30}已手改.{0,60}/)?.[0] || '');
+  delete state.poster.prompt;
+  check('清掉手改后回到四段自动装配',
+    view.posterPromptUsed().includes('【项目信息表】') && view.posterPromptEdited() === false);
+
+  state.materials.poster = {
+    title: '海报 / 宣传图',
+    sections: [
+      { heading: '甲、改过名的第一节', body: '改过名的正文甲' },
+      { heading: '乙、改过名的第二节', body: '改过名的正文乙' }
+    ]
+  };
+  const fallback = view.posterPrompt();
+  check('章节名被改掉时退回材料全文（且只退一次）',
+    fallback.includes('改过名的正文甲') && fallback.includes('改过名的正文乙')
+    && fallback.indexOf('改过名的正文甲') === fallback.lastIndexOf('改过名的正文甲'),
+    fallback.slice(0, 160));
+
+  delete state.materials.poster;
+  const empty = view.posterPrompt();
+  check('材料没生成时只发项目信息表并写明缺料',
+    empty.includes('（还没生成海报材料）') && empty.includes(state.project.basic.name),
+    empty.slice(0, 120));
+
+  const fakeBrief = {
+    value: '竖版 1080×1440，青蓝渐变，中上部留出标题空白',
+    closest: (sel) => (sel === '[data-ai-image-brief]' ? fakeBrief : null)
+  };
+  state.materials.poster = {
+    title: '海报 / 宣传图',
+    sections: [{ heading: '一、海报文案', body: '主标题：创想之夜' }, { heading: '二、视觉设计说明', body: '主色深青' }]
+  };
+  document.getElementById('materialPanel').emit('input', { target: fakeBrief });
+  check('追加要求只进提示词，不改材料正文',
+    state.poster.brief === fakeBrief.value
+    && view.posterPrompt().includes(`【追加要求】\n${fakeBrief.value}`)
+    && state.materials.poster.sections[0].body === '主标题：创想之夜',
+    JSON.stringify({ brief: state.poster.brief, body: state.materials.poster.sections[0].body }));
+
+  store.setUser({ name: '访客', role: 'viewer' });
+  view.render();
+  const guestCard = posterCardHtml(document.getElementById('materialList').innerHTML);
+  check('只读访客：追加要求框、提示词框、重新装配与生图按钮都禁用',
+    /<textarea data-ai-image-brief[^>]*disabled>/.test(guestCard)
+    && /<textarea class="poster-prompt-text"[^>]*disabled>/.test(guestCard)
+    && /data-ai-image-prompt-reset\s+disabled/.test(guestCard)
+    && /data-ai-image\s+disabled/.test(guestCard),
+    guestCard.slice(0, 200));
+  store.setUser({ name: '测试同学', role: 'organizer' });
+
+  if (savedSections) state.materials.poster = savedSections; else delete state.materials.poster;
+  if (savedBrief === undefined) delete state.poster.brief; else state.poster.brief = savedBrief;
+  if (savedPrompt === undefined) delete state.poster.prompt; else state.poster.prompt = savedPrompt;
+  if (savedUser9j) store.setUser(savedUser9j); else store.signOut();
+  view.render();
 }
 
 /* ── 9b. 分页路由：一次只显示一个视图，标签栏覆盖全部视图 ── */
@@ -3460,6 +3590,439 @@ const wordEmptyXml = new TextDecoder('utf-8').decode(window.WB.ooxml.readEntries
 check('Word 导出：空表头不再生成没有格子的空行，也不多挂一排空格子',
   (wordEmptyXml.match(/<w:tc>/g) || []).length === 2 && (wordEmptyXml.match(/<w:tr>/g) || []).length === 1 && !/<w:tr><\/w:tr>/.test(wordEmptyXml));
 
+/* ── 9d. 卡片工作流：数据形状、迁移、项目包往返、导出与门禁 ── */
+const WF = window.WB.views.workflow;
+check('卡片工作流视图已注册，且导出运行 / 增卡 / 排序 / 导出接口',
+  Boolean(WF) && ['render', 'mount', 'runCard', 'runAll', 'addCard', 'addFromOutputs', 'deleteCard',
+    'duplicateCard', 'moveCard', 'toggleRef', 'toggleFrom', 'cardMarkdown', 'exportMarkdown', 'exportJson', 'skillLabel']
+    .every((key) => typeof WF[key] === 'function'));
+check('新项目默认带一个空的卡片工作流',
+  Array.isArray(store.freshProjectDoc().workflow.cards) && store.freshProjectDoc().workflow.cards.length === 0);
+const wfBad = store.normaliseWorkflow({ cards: [
+  { title: '甲', skill: 'wbs', refs: ['project', 'wbs', '不存在的源'], from: ['', 'card-x'], output: { title: '', text: '' } },
+  null
+] });
+check('卡片归一化：过滤不认识的资料源、丢掉空的上游引用、空输出不算已出稿',
+  wfBad.cards.length === 2 && wfBad.cards[0].refs.join(',') === 'project,wbs'
+  && wfBad.cards[0].from.join(',') === 'card-x' && wfBad.cards[0].output === null
+  && wfBad.cards[0].status === 'draft' && wfBad.cards[1].id.startsWith('card'));
+check('卡片归一化：有正文才算已完成，失败状态保留',
+  store.normaliseWorkflow({ cards: [{ output: { text: '正文' } }] }).cards[0].status === 'done'
+  && store.normaliseWorkflow({ cards: [{ output: { text: '正文' }, status: 'error' }] }).cards[0].status === 'error');
+check('老存档 / 老项目包没有 workflow 字段也能读成空列表（坏形状不炸）',
+  JSON.stringify(store.migrateDoc({ project: null }).workflow) === JSON.stringify({ cards: [] })
+  && JSON.stringify(store.migrateDoc({ workflow: { cards: 'bad' } }).workflow) === JSON.stringify({ cards: [] }));
+
+/* 项目包往返：卡片、引用与已生成的正文都要跟着走 */
+store.setUser({ name: '组织者', role: 'organizer' });
+store.importBundle(JSON.parse(JSON.stringify(bundle)));
+store.state.workflow = { cards: [
+  { id: 'card-a', title: '整体思路', skill: 'activity-proposal', refs: ['project', 'agenda'], from: [], instruction: '300 字以内', status: 'done', output: { title: '思路', text: '## 一、背景\n用正文写。', at: '2026-10-10T00:00:00.000Z', model: 'deepseek-chat' } },
+  { id: 'card-b', title: '通知稿', skill: '', refs: ['project'], from: ['card-a'], instruction: '', status: 'draft', output: null }
+] };
+store.save();
+const wfBundle = JSON.parse(JSON.stringify(store.exportBundle()));
+check('卡片工作流随项目包导出', wfBundle.workflow.cards.length === 2 && wfBundle.workflow.cards[0].output.text.includes('用正文写'));
+store.reset();
+check('重置项目后卡片工作流一并清空', store.state.workflow.cards.length === 0);
+store.importBundle(wfBundle);
+check('导入项目包后卡片、上游引用与正文原样回来',
+  store.state.workflow.cards.length === 2 && store.state.workflow.cards[1].from.join(',') === 'card-a'
+  && store.state.workflow.cards[0].output.text.includes('用正文写'));
+
+/* 导出：卡片名 + 技能名 + 引用资料 + 上游卡片 + 正文 */
+const wfMd = WF.cardMarkdown(store.state.workflow.cards[0]);
+check('卡片导出 Markdown：带卡片名 / 技能名 / 引用资料 / 再要求 / 正文',
+  wfMd.startsWith('## 整体思路') && wfMd.includes('技能包：活动策划书') && wfMd.includes('引用资料：项目信息表、活动安排')
+  && wfMd.includes('300 字以内') && wfMd.includes('用正文写'));
+check('没有正文的卡片在导出里写明「还没运行」', WF.cardMarkdown(store.state.workflow.cards[1]).includes('（还没运行）'));
+check('卡片导出写出所引用的上游卡片名', WF.cardMarkdown(store.state.workflow.cards[1]).includes('引用卡片：整体思路'));
+
+/* 增 / 排序 / 复制 / 删 / 引用开关 */
+const wfNew = WF.addCard();
+check('新建卡片落在列表末尾，默认引用项目信息表', Boolean(wfNew) && wfNew.refs.join(',') === 'project' && store.state.workflow.cards.length === 3);
+WF.moveCard('card-b', 'card-a', 'before');
+check('拖拽排序把卡片插到目标前面',
+  store.state.workflow.cards[0].id === 'card-b' && store.state.workflow.cards[1].id === 'card-a',
+  store.state.workflow.cards.map((card) => card.id).join(','));
+const wfDup = store.state.workflow.cards.length;
+WF.duplicateCard('card-a');
+check('复制卡片：多一张同技能的卡片，但正文不带过去（回到待运行）',
+  store.state.workflow.cards.length === wfDup + 1
+  && store.state.workflow.cards.some((card) => card.title === '整体思路（副本）' && !card.output));
+WF.deleteCard('card-a');
+check('删除卡片时摘掉其余卡片对它的引用，不留悬空引用',
+  !store.state.workflow.cards.some((card) => card.id === 'card-a')
+  && store.state.workflow.cards.every((card) => !card.from.includes('card-a')));
+WF.toggleRef(store.state.workflow.cards[0].id, 'risks');
+check('引用资料可以勾上', store.state.workflow.cards[0].refs.includes('risks'));
+WF.toggleRef(store.state.workflow.cards[0].id, 'risks');
+check('再点一次就取消引用', !store.state.workflow.cards[0].refs.includes('risks'));
+
+/* 渲染与门禁 */
+WF.render();
+const wfHtml = document.getElementById('workflowPanel').innerHTML;
+check('工作流面板默认渲染二维画布：卡片节点、资料源、连线与工具条',
+  wfHtml.includes('data-flow-card=') && wfHtml.includes('flow-canvas')
+  && wfHtml.includes('data-flow-pill=') && wfHtml.includes('data-flow-view-fit')
+  && wfHtml.includes('运行全部'));
+check('工作流面板写出卡片总数', wfHtml.includes(`共 ${store.state.workflow.cards.length} 张卡片`));
+check('未连接 AI 时运行卡片直接返回失败，不动卡片数据', (await WF.runCard(store.state.workflow.cards[0].id)) === false);
+
+/* ── 9e. 二维画布：坐标、依赖层级、连线、成环、弹窗、导出 Word ── */
+store.state.workflow = { cards: [
+  { id: 'c1', title: '上游', skill: 'wbs', refs: ['project'], from: [], instruction: '', status: 'done',
+    output: { title: '上游', text: '# 标题\n\n正文一段。\n\n| 列 | 值 |\n| --- | --- |\n| 甲 | 1 |' } },
+  { id: 'c2', title: '下游', skill: '', refs: [], from: ['c1'], instruction: '', status: 'draft', output: null },
+  { id: 'c3', title: '孤岛', skill: '', refs: [], from: [], instruction: '', status: 'draft', output: null }
+] };
+const canvasPlan = WF.autoPositions();
+check('自动排布：按引用层级分列（有上游的排在右一列，同层的上下错开）',
+  canvasPlan.get('c1').x === 0 && canvasPlan.get('c2').x > canvasPlan.get('c1').x
+  && canvasPlan.get('c3').x === 0 && canvasPlan.get('c3').y !== canvasPlan.get('c1').y);
+check('依赖层级：引用了上游的卡片深度更大',
+  WF.depthOfCards().get('c1') === 0 && WF.depthOfCards().get('c2') === 1);
+
+store.state.workflow.cards[0].x = 800;
+store.state.workflow.cards[0].y = 400;
+check('老存档缺坐标：只补缺的那些，已经摆好的卡片不动', WF.seedLayout() === true
+  && store.state.workflow.cards[0].x === 800 && store.state.workflow.cards[0].y === 400
+  && Number.isFinite(store.state.workflow.cards[1].x) && Number.isFinite(store.state.workflow.cards[1].y)
+  && WF.seedLayout() === false);
+check('坐标坏值被洗成 null（画布上不会出现 NaN 卡片）',
+  store.normaliseWorkflow({ cards: [{ x: 'abc', y: null, w: 'x' }] }).cards[0].x === null
+  && store.normaliseWorkflow({ cards: [{ x: 'abc', y: null, w: 'x' }] }).cards[0].y === null
+  && store.normaliseWorkflow({ cards: [{ x: 'abc', y: null, w: 'x' }] }).cards[0].w === 0
+  && store.normaliseWorkflow({ cards: [{ x: '512', y: 256 }] }).cards[0].x === 512);
+
+check('拖到新位置会落盘', WF.placeCard('c2', 512, 256) === true
+  && store.state.workflow.cards[1].x === 512 && store.state.workflow.cards[1].y === 256);
+const canvasBundle = JSON.parse(JSON.stringify(store.exportBundle()));
+check('卡片坐标随项目包往返（换台机器打开布局不丢）',
+  canvasBundle.workflow.cards[1].x === 512 && canvasBundle.workflow.cards[1].y === 256);
+
+check('连线：从上游拖到下游，下游就引用它',
+  WF.addFrom('c3', 'c1') === true && store.state.workflow.cards[2].from.join(',') === 'c1');
+check('已经连着的边不重复加', WF.addFrom('c3', 'c1') === false && store.state.workflow.cards[2].from.join(',') === 'c1');
+check('禁止成环：反向再连会被拦下',
+  WF.addFrom('c1', 'c2') === false && !store.state.workflow.cards[0].from.includes('c2'));
+check('环检测：顺着引用链能走到才算环', WF.reaches('c2', 'c1') === true && WF.reaches('c1', 'c2') === false);
+WF.removeFrom('c3', 'c1');
+check('断开连线：引用关系一并摘掉', !store.state.workflow.cards[2].from.includes('c1'));
+
+WF.setRef('c1', 'agenda', true);
+const canvasEdges = WF.edgesOf();
+check('边是引用关系的投影：1 条卡片引用 + 2 条资料引用 = 3 条边',
+  canvasEdges.filter((edge) => edge.kind === 'from').length === 1
+  && canvasEdges.filter((edge) => edge.kind === 'ref').length === 2,
+  canvasEdges.map((edge) => edge.kind + ':' + edge.ref).join(','));
+
+/* 渲染：画布 / 列表 / 弹窗三条路 */
+WF.setMode('canvas');
+WF.render();
+const canvasText = document.getElementById('workflowPanel').innerHTML;
+check('画布渲染出节点、资料源、连线与视图工具',
+  canvasText.includes('data-flow-card=') && canvasText.includes('flow-canvas')
+  && canvasText.includes('data-flow-pill=') && canvasText.includes('flow-edge is-from')
+  && canvasText.includes('data-flow-view-fit'));
+check('画布写出卡片总数', canvasText.includes('共 3 张卡片'));
+check('技能包对应得上过程材料时，节点给「看材料」跳转（深度编辑留在原页）',
+  canvasText.includes('data-goto-view="material"') === (WF.materialKeyOf('wbs') !== '')
+  && WF.materialKeyOf('') === '');
+
+/* 缩略图：画布比一屏大时的「我在哪」+ 快速跳转 */
+const canvasEl = document.getElementById('flowCanvas');
+canvasEl.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1132, bottom: 670, width: 1132, height: 670 });
+const placedCount = store.state.workflow.cards.filter((card) => Number.isFinite(card.x) && Number.isFinite(card.y)).length;
+const mapHtml = WF.minimapHtml();
+check('缩略图渲染：每张有坐标的卡片一个小块 + 一个取景框',
+  mapHtml.includes('flow-map-body') && mapHtml.includes('flow-map-view')
+  && (mapHtml.match(/flow-map-node/g) || []).length === placedCount,
+  String(placedCount));
+const mapGeo = WF.mapGeometry();
+check('缩略图几何：按内容包围盒等比缩放，不会溢出缩略图框',
+  mapGeo.ms > 0 && mapGeo.spanX * mapGeo.ms <= 172.5 && mapGeo.spanY * mapGeo.ms <= 108.5,
+  String(mapGeo.ms));
+WF.paintMinimap(true);
+const mapViewStyle = document.getElementById('flowMapView').style;
+const toPx = (value) => Number(String(value).replace('px', ''));
+check('取景框跟着视野走：宽高 = 画布尺寸 ÷ 缩放 × 缩略比',
+  Math.abs(toPx(mapViewStyle.width) - (1132 / WF.viewportOf().k) * mapGeo.ms) < 1.5
+  && Math.abs(toPx(mapViewStyle.height) - (670 / WF.viewportOf().k) * mapGeo.ms) < 1.5,
+  mapViewStyle.width + ' x ' + mapViewStyle.height);
+store.setUser({ name: '访客', role: 'viewer' });
+check('缩略图是只读功能：访客也能看到（它只挪视角，不写数据）', WF.minimapHtml().includes('flow-map-body'));
+store.setUser({ name: '组织者', role: 'organizer' });
+
+/* 首次适配：0.8 还装不下时贴左上角，别居中把首尾两行切掉 */
+store.state.workflow.cards.forEach((card, index) => { card.x = index * 372; card.y = index * 188; });
+WF.fitView(0.8);
+const wideVp = WF.viewportOf();
+const wideBox = WF.mapGeometry().box;
+check('首次适配：装不下的那一轴贴住画布左上角（x = 36），装得下的那一轴仍然居中（y = 125）',
+  (wideBox.maxX - wideBox.minX) * wideVp.k > 1132 - 72 && wideVp.x + wideBox.minX * wideVp.k === 36
+  && (wideBox.maxY - wideBox.minY) * wideVp.k < 670 - 72 && wideVp.y === 125,
+  JSON.stringify(wideVp));
+
+/* 工具坞：指针模式 / 缩放 / 适应屏幕 / 隐藏连线 / 撤销重做 / 搜索画布（参照成熟画布工具的做法） */
+WF.setMode('canvas');
+WF.render();
+const dockText = document.getElementById('workflowPanel').innerHTML;
+check('工具坞渲染出指针模式 / 缩放 / 适应屏幕 / 隐藏连线 / 自动排布 / 撤销重做 / 搜索画布',
+  ['data-flow-pan-mode="select"', 'data-flow-pan-mode="pan"', 'data-flow-view-zoom="out"', 'data-flow-zoom-reset',
+    'data-flow-view-fit', 'data-flow-edges-toggle', 'data-flow-layout', 'data-flow-undo', 'data-flow-redo', 'data-flow-search']
+    .every((item) => dockText.includes(item)));
+check('撤销 / 重做的禁用状态与历史深度一致',
+  /data-flow-undo[^>]*disabled/.test(dockText) === (WF.historyOf().past === 0)
+  && /data-flow-redo[^>]*disabled/.test(dockText) === (WF.historyOf().future === 0));
+
+WF.setPanMode(true);
+const panOn = WF.panModeOf();
+WF.setPanMode(false);
+check('指针模式：切到「拖动」是抓手，切回「选中」恢复', panOn === true && WF.panModeOf() === false);
+check('点百分比回到 100%', WF.resetZoom() === 1 && WF.viewportOf().k === 1);
+
+check('隐藏连线：线不画了，引用关系一条没少',
+  WF.edgesSvg().includes('flow-edge is-') && WF.toggleEdges() === true && WF.edgesHidden() === true
+  && !WF.edgesSvg().includes('flow-edge is-') && WF.edgesOf().length > 0);
+check('再点一次恢复显示连线', WF.toggleEdges() === false && WF.edgesHidden() === false && WF.edgesSvg().includes('flow-edge is-'));
+
+const foldCard = store.state.workflow.cards[0];
+foldCard.collapsed = true;
+const folded = WF.nodeHtml(foldCard, true);
+foldCard.collapsed = false;
+const unfolded = WF.nodeHtml(foldCard, true);
+check('收起卡片：画布上只留标题与按钮，正文不上画布（数据还在）',
+  folded.includes('is-collapsed') && !folded.includes('flow-node-text')
+  && unfolded.includes('flow-node-text') && Boolean(store.state.workflow.cards[0].output));
+check('收起 / 展开按钮：可写身份给按钮，只读身份禁用',
+  unfolded.includes('data-flow-collapse="c1"') && !/data-flow-collapse="c1"[^>]*disabled/.test(unfolded)
+  && /data-flow-collapse="c1"[^>]*disabled/.test(WF.nodeHtml(foldCard, false)));
+check('节点画出左侧入端口：有上游的那张点亮',
+  WF.nodeHtml(store.state.workflow.cards[1], true).includes('flow-node-port is-in is-live')
+  && WF.nodeHtml(store.state.workflow.cards[2], true).includes('flow-node-port is-in"'));
+
+const foldedBefore = Boolean(store.state.workflow.cards[1].collapsed);
+WF.toggleCollapse('c2');
+const foldedAfter = Boolean(store.state.workflow.cards[1].collapsed);
+WF.undo();
+check('收起可以撤销（回到上一步的样子）',
+  foldedAfter !== foldedBefore && Boolean(store.state.workflow.cards[1].collapsed) === foldedBefore && WF.historyOf().future >= 1);
+check('重做：又回到收起后的样子', WF.redo() === true && Boolean(store.state.workflow.cards[1].collapsed) === foldedAfter);
+WF.undo();
+
+const beforeLayout = store.state.workflow.cards.map((card) => card.id + ':' + card.x + ',' + card.y).join('|');
+WF.autoLayout();
+const afterLayout = store.state.workflow.cards.map((card) => card.id + ':' + card.x + ',' + card.y).join('|');
+check('自动排布可以撤销：一步退回原来的摆位',
+  afterLayout !== beforeLayout && WF.undo() === true
+  && store.state.workflow.cards.map((card) => card.id + ':' + card.x + ',' + card.y).join('|') === beforeLayout);
+
+check('搜索画布：打开列出全部卡片，关掉后不再渲染',
+  WF.openPalette() === true && WF.paletteHtml().includes('flow-palette-box')
+  && WF.paletteResults().length === store.state.workflow.cards.length
+  && WF.closePalette() === true && WF.paletteOf() === null);
+WF.openPalette();
+WF.render();
+check('搜索面板挂在弹窗宿主上（与配置窗共用一套遮罩，不受面板 transform 影响）',
+  document.getElementById('flowModalHost').innerHTML.includes('flow-palette-box')
+  && !document.getElementById('workflowPanel').innerHTML.includes('flow-palette-box'));
+check('搜索按卡片名 / 技能包过滤，也支持 ↑↓ 循环选择',
+  WF.paletteQuery('上游') >= 1 && WF.paletteQuery('zzz-不存在') === 0
+  && WF.paletteQuery('') === store.state.workflow.cards.length
+  && WF.movePalette(1) === true && WF.paletteOf().index === 1
+  && WF.movePalette(-1) === true && WF.paletteOf().index === 0);
+check('跳到某张卡片会关掉搜索面板', WF.paletteJump('c2') === true && WF.paletteOf() === null);
+
+store.setUser({ name: '访客', role: 'viewer' });
+WF.render();
+const viewerDock = document.getElementById('workflowPanel').innerHTML;
+check('只读访客不能撤销 / 重做 / 收起卡片',
+  WF.historyOf().past > 0 && WF.undo() === false && WF.redo() === false
+  && WF.toggleCollapse('c1') === false && !store.state.workflow.cards[0].collapsed);
+check('只读访客的工具坞上撤销 / 重做是禁用的',
+  /data-flow-undo[^>]*disabled/.test(viewerDock) && /data-flow-redo[^>]*disabled/.test(viewerDock));
+store.setUser({ name: '组织者', role: 'organizer' });
+
+WF.setMode('list');
+WF.render();
+const listText = document.getElementById('workflowPanel').innerHTML;
+check('列表模式原样保留（技能下拉 / 引用筹码 / 运行按钮都在）',
+  listText.includes('data-flow-skill=') && listText.includes('data-flow-ref=')
+  && listText.includes('data-flow-run=') && listText.includes('data-flow-card='));
+
+WF.setMode('canvas');
+WF.openCard('c2');
+WF.render();
+const modalText = document.getElementById('flowModalHost').innerHTML;
+check('配置窗挂在 body 上而不是面板里（面板有 transform，会困住 fixed 定位）',
+  !document.getElementById('workflowPanel').innerHTML.includes('data-flow-modal') && modalText.includes('data-flow-modal'));
+check('点卡片弹出配置窗：技能包 / 引用资料 / 引用卡片 / 再要求 / 运行 / 导出 Word',
+  WF.focusedId() === 'c2' && modalText.includes('data-flow-modal')
+  && modalText.includes('data-flow-skill=') && modalText.includes('data-flow-ref=')
+  && modalText.includes('data-flow-instruction=') && modalText.includes('data-flow-card-word=')
+  && modalText.includes('data-flow-run='));
+check('运行中的卡片在画布上有状态标记',
+  modalText.includes('flow-stage is-draft') || modalText.includes('flow-stage is-done'));
+WF.closeCard();
+check('关掉配置窗后弹窗不再渲染',
+  WF.focusedId() === null && !document.getElementById('flowModalHost').innerHTML.includes('data-flow-modal'));
+
+/* 导出 Word：复用 core/ooxml.js，产出真 zip */
+const cardDocx = WF.cardDocxBytes(store.state.workflow.cards[0]);
+check('单卡导出 Word：产出的是真 .docx（PK 开头的 zip）',
+  cardDocx && cardDocx.length > 800 && cardDocx[0] === 0x50 && cardDocx[1] === 0x4B);
+const orderedIds = WF.orderedCards().map((card) => card.id);
+check('整条工作流导出 Word：上游卡片排在下游之前（同层按画布上下排）',
+  WF.workflowDocxBytes().length > cardDocx.length
+  && orderedIds[orderedIds.length - 1] === 'c2'
+  && orderedIds.slice(0, -1).sort().join(',') === 'c1,c3',
+  orderedIds.join(','));
+
+/* 只读访客：写入控件被拦下 */
+store.setUser({ name: '访客', role: 'viewer' });
+check('只读访客不能新建卡片', WF.addCard() === null);
+WF.toggleRef(store.state.workflow.cards[0].id, 'materials');
+check('只读访客不能改引用资料', !store.state.workflow.cards[0].refs.includes('materials'));
+check('只读访客不能在画布上连线', WF.addFrom('c3', 'c1') === false && !store.state.workflow.cards[2].from.includes('c1'));
+const frozenX = store.state.workflow.cards[1].x;
+WF.placeCard('c2', 999, 999);
+check('只读访客不能改卡片坐标', store.state.workflow.cards[1].x === frozenX);
+WF.autoLayout();
+check('只读访客不能触发自动排布', store.state.workflow.cards[1].x === frozenX);
+store.setUser({ name: '组织者', role: 'organizer' });
+const fakeFlowChip = {
+  closest: () => null, classList: { contains: () => false }, id: '',
+  hasAttribute: () => true, getAttributeNames: () => ['data-flow-ref'], getAttribute: () => 'card-a'
+};
+const fakeFlowExport = {
+  closest: () => null, classList: { contains: () => false }, id: '',
+  hasAttribute: () => false, getAttributeNames: () => ['data-flow-export'], getAttribute: () => 'md'
+};
+check('工作流的引用筹码被判定为写入控件（只读访客会被禁用）', window.WB.isReadOnlyControl(fakeFlowChip) === false);
+check('工作流的导出按钮被判定为只读控件（访客也能导出）', window.WB.isReadOnlyControl(fakeFlowExport) === true);
+
+/* ── 9f. 画布交互的三个坑：文字被选中 / 按钮点了没反应 / 指针捕获抢走 click ──
+   这三条都是「接线」类问题：离线自测跑不了真指针，就守住源码里的关键约束，
+   再配合 tools/ 里的真机驱动脚本（CDP）做端到端复验。 */
+const flowSrc = fs.readFileSync(path.join(root, 'views/workflow.js'), 'utf8');
+const flowStyleSrc = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
+/* 取一个函数的源码片段：从 `function 名(` 到下一个同级函数声明为止 */
+const fnBodyOf = (src, name) => {
+  const start = src.indexOf(`function ${name}(`);
+  if (start < 0) return '';
+  const next = src.indexOf('\n  function ', start + 1);
+  return src.slice(start, next < 0 ? src.length : next);
+};
+const panBody = fnBodyOf(flowSrc, 'startPan');
+const downBody = fnBodyOf(flowSrc, 'onCanvasDown');
+const upBody = fnBodyOf(flowSrc, 'onCanvasUp');
+const clickBody = fnBodyOf(flowSrc, 'onCanvasClick');
+const takeBody = fnBodyOf(flowSrc, 'takeCapture');
+const resetBody = fnBodyOf(flowSrc, 'resetGestureState');
+check('取到了画布交互的六个函数片段（片段为空说明函数改名了，下面的断言会失去意义）',
+  [panBody, downBody, upBody, clickBody, takeBody, resetBody].every((body) => body.length > 60));
+
+check('平移画布不吞掉 click：startPan 里没有真的调 preventDefault（注释里提到不算数）',
+  !/preventDefault\s*\(/.test(panBody) && !/preventDefault\s*\(/.test(fnBodyOf(flowSrc, 'onCanvasMove')));
+check('按在按钮 / 输入框 / 连线命中层上不启动平移（按住按钮拖一下不会顺手把画布挪走）',
+  downBody.includes("closest?.('button, a, input, textarea, select, [data-flow-edge]')"));
+check('工具坞与收起按钮优先放行，点它们只当点击',
+  downBody.includes("closest?.('.flow-dock')") && downBody.includes("closest?.('[data-flow-collapse]')"));
+
+check('指针捕获推迟到真的拖起来：全文件只有 takeCapture 里有 setPointerCapture，按下时只记一笔',
+  (flowSrc.match(/setPointerCapture\??\.\(/g) || []).length === 1
+  && /setPointerCapture\??\.\(/.test(takeBody)
+  && !fnBodyOf(flowSrc, 'startDrag').includes('setPointerCapture')
+  && !panBody.includes('setPointerCapture')
+  && flowSrc.includes('armCapture(panel, event)'));
+check('位移不到 4px 不捕获（点一下就是一次正常 click），超过才捕获',
+  takeBody.includes('< 4) return') && takeBody.includes('pendingCapture = null'));
+check('收手 / 取消 / 失焦三条路都能清掉待捕获状态（残留会让下一次点击失灵）',
+  upBody.includes('pendingCapture = null') && resetBody.includes('pendingCapture = null'));
+
+check('「打开」按钮自带 data-flow-open：不会被「点按钮不算点卡片」的规则一起挡掉',
+  clickBody.includes('control !== open') && clickBody.includes('control.dataset?.flowOpen'));
+check('画布禁选：画布里拉不出蓝色选区，输入框与正文弹窗仍可选中',
+  /\.flow-canvas \{[^}]*user-select: none/.test(flowStyleSrc)
+  && /\.flow-canvas input, \.flow-canvas textarea[^{]*\{[^}]*user-select: text/.test(flowStyleSrc)
+  && /body\.is-gesturing, body\.is-gesturing \* \{[^}]*user-select: none !important/.test(flowStyleSrc));
+check('禁选标记有兜底：pointercancel 与窗口失焦都会摘掉（不然整页一直不能选字）',
+  flowSrc.includes("addEventListener('pointercancel'") && flowSrc.includes("addEventListener?.('blur'")
+  && flowSrc.includes('endGestureMark'));
+/* ── 9g. 放大画布（沉浸模式）与画布高度的算法 ──
+   背景：1366×768 的笔记本上，原来是 62vh = 476px，画布底边落在屏幕外 100px，工具坞直接看不见。
+   所以高度改成「视口 − 画布上方那些东西」，再给一个「放大画布」把页面导航与说明收起来。 */
+store.setUser({ name: '组织者', role: 'organizer' });
+WF.setMode('canvas');
+WF.render();
+check('工具坞右端有「放大画布」按钮', WF.canvasHtml(true).includes('data-flow-immersive'));
+check('放大状态挂在面板上，不挂在 body（body 上挂就没人负责摘，会一直藏着导航）',
+  WF.toggleImmersive() === true && WF.immersiveOf() === true
+  && document.getElementById('workflowPanel').classList.contains('is-immersive')
+  && document.body.classList.contains('is-immersive') === false);
+check('再点一次退出放大，面板上的标记一并摘掉',
+  WF.toggleImmersive() === false && WF.immersiveOf() === false
+  && document.getElementById('workflowPanel').classList.contains('is-immersive') === false);
+WF.toggleImmersive();
+WF.setMode('list');
+check('切到列表模式自动退出放大（放大是画布模式的玩法，别把页面导航一直藏着）',
+  WF.modeOf() === 'list' && WF.immersiveOf() === false
+  && document.getElementById('workflowPanel').classList.contains('is-immersive') === false
+  && typeof WF.toggleImmersive === 'function');
+WF.setMode('canvas');
+WF.toggleImmersive();
+WF.toggleImmersive();
+check('放大后的样式靠 :has 往上够到页面导航，并且只在面板没被隐藏时生效',
+  /body:has\(#workflowPanel\.is-immersive:not\(\.hidden\)\) \.topbar,/.test(flowStyleSrc)
+  && /body:has\(#workflowPanel\.is-immersive:not\(\.hidden\)\) \.tabs \{ display: none; \}/.test(flowStyleSrc)
+  && /body:has\(#workflowPanel\.is-immersive:not\(\.hidden\)\) \.shell \{ max-width: none/.test(flowStyleSrc)
+  && /#workflowPanel \.flow-canvas \{ height: calc\(100vh - 118px\); \}/.test(flowStyleSrc));
+check('Esc 的优先级：先关搜索面板 → 再关卡片配置窗 → 最后才退出放大',
+  flowSrc.indexOf('if (palette) { closePalette(); return; }') < flowSrc.indexOf('if (focusId) { closeCard(); return; }')
+  && flowSrc.indexOf('if (focusId) { closeCard(); return; }') < flowSrc.indexOf('if (immersiveOn() && !panel.classList.contains'));
+/* 只取 height 声明本身（规则里的注释提到 62vh，别把注释也算进去） */
+const canvasHeightDecl = (flowStyleSrc.match(/\.flow-canvas \{[\s\S]*?height: ([^;]+);/) || [])[1] || '';
+/* 「用视口百分比当高度」的写法是 clamp(420px, 62vh, 720px)：61vh 这种光秃秃的 vh 记作违规，
+   而 calc(100vh - 408px) 里的 100vh 后面跟着减号，是拿视口当基准算，允许。 */
+const bareVh = /(^|[,\s(])\d+(?:\.\d+)?vh(?!\s*[-+)])/;
+check('画布默认高度按窗口算，不再用视口百分比（62vh 在矮屏上会把底边顶出屏幕）',
+  canvasHeightDecl.includes('clamp(') && canvasHeightDecl.includes('calc(100vh - 408px)')
+  && !bareVh.test(canvasHeightDecl),
+  canvasHeightDecl.trim());
+/* ── 9h. 放大画布记进本机存档（state.ui.flowImmersive）──
+   它跟 taskView / 各种筛选同一层：设备级习惯，不进项目文档（DOC_KEYS 里没有 ui），刷新还在。 */
+const readIndex = () => JSON.parse(globalThis.localStorage.getItem(window.WB.store.INDEX_KEY) || '{}');
+WF.setImmersive(false, true);
+check('放大画布落盘：state.ui.flowImmersive 为真，本机索引里也有这一笔',
+  WF.toggleImmersive() === true && WF.immersiveOf() === true && readIndex().ui?.flowImmersive === true);
+check('退出放大同样落盘（不是只改内存）',
+  WF.toggleImmersive() === false && WF.immersiveOf() === false && readIndex().ui?.flowImmersive === false);
+check('缺这个字段的老存档不会炸：新建 state 的默认值是 false',
+  window.WB.store.freshState().ui.flowImmersive === false);
+check('放大状态只有一个来源：视图里不再自己留一份 let immersive，读的都走 immersiveOn()',
+  !/let immersive\b/.test(flowSrc)
+  && /const immersiveOn = \(\) => Boolean\(state\(\)\?\.ui\?\.flowImmersive\)/.test(flowSrc)
+  && /function setImmersive\(on, quiet = false\)/.test(flowSrc));
+/* ── 9i. 连线的样子：连续的灰线 + 箭头同色 + 命中层与线成对（悬停才加对那条）── */
+WF.setMode('canvas');
+WF.render();
+WF.setRef('c1', 'project', true);
+const edgeSvgText = WF.edgesSvg();
+const edgePairs = (edgeSvgText.match(/flow-edge-hit" d="[^"]*" data-flow-edge="[^"]*"><\/path><path class="flow-edge is-/g) || []).length;
+check('连线的命中层与可见线成对渲染（CSS 的悬停加粗靠相邻关系，分成两批就会加错线）',
+  edgePairs > 0 && edgePairs === WF.edgesOf().length, '成对 ' + edgePairs + ' / 边 ' + WF.edgesOf().length);
+
+const edgeBaseRule = (flowStyleSrc.match(/\.flow-edge \{[^}]*\}/) || [''])[0];
+const edgeRefRule = (flowStyleSrc.match(/\.flow-edge\.is-ref \{[^}]*\}/) || [''])[0];
+const edgeFromRule = (flowStyleSrc.match(/\.flow-edge\.is-from \{[^}]*\}/) || [''])[0];
+check('连线是连续的灰线：底色走 --flow-line，资料源那条不打虚线了，卡片之间的也不再是青色',
+  edgeBaseRule.includes('stroke: var(--flow-line)') && /--flow-line: #a8b5b1/.test(flowStyleSrc)
+  && !/dasharray/.test(edgeBaseRule) && !/dasharray/.test(edgeRefRule) && !/dasharray/.test(edgeFromRule)
+  && !/var\(--accent\)/.test(edgeBaseRule) && !/var\(--accent\)/.test(edgeRefRule) && !/var\(--accent\)/.test(edgeFromRule),
+  edgeBaseRule);
+check('箭头跟线一个色（marker 里的 path 不写 fill 默认是纯黑，一串黑点特别扎眼）',
+  /#flowArrow path \{ fill: var\(--flow-line\); \}/.test(flowStyleSrc));
 console.log(`\n结构化活动工作台 · 离线自测`);
 console.log(`模块 ${MODULES.length} 个 · 断言 ${checks} 项 · 失败 ${failures.length} 项`);
 if (failures.length) {

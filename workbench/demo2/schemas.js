@@ -41,7 +41,7 @@ window.SKILLS = {
           { key: 'venuePlan', label: '场地与资源方案', phase: 'plan', skill: 'venue-plan', kind: 'document' },
           { key: 'staffing', label: '组织分工与职责表', phase: 'plan', skill: 'staffing-plan', kind: 'table' },
 
-          { key: 'poster', label: '海报 / 宣传图', phase: 'prepare', skill: 'poster', kind: 'graphic', core: true },
+          { key: 'poster', label: '海报 / 宣传图', phase: 'prepare', skill: 'poster', kind: 'graphic', deliverable: 'markdown', core: true },
           { key: 'promoCopy', label: '宣传文案', phase: 'prepare', skill: 'promo-copy', kind: 'document' },
           { key: 'signup', label: '报名表 / 报名页', phase: 'prepare', skill: 'signup-form', kind: 'table' },
           { key: 'invitation', label: '邀请函 / 通知稿', phase: 'prepare', skill: 'invitation', kind: 'document' },

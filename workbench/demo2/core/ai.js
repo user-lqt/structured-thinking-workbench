@@ -242,6 +242,9 @@ window.WB = window.WB || {};
 
   window.WB.ai = {
     get ready() { return ai.ready; },
+    /* 生图能力单独一路：以前这里漏了 imageReady，界面只能读到 undefined，
+       于是「生成图片」按钮永远置灰——修在出口这一处，视图不用再自己猜 */
+    get imageReady() { return ai.imageReady; },
     get busy() { return ai.busy; },
     set healthPromise(value) { healthPromise = value; },
     get healthPromise() { return healthPromise; },

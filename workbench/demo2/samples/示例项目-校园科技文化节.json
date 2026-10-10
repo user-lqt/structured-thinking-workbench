@@ -232,16 +232,7 @@
       "createdAt": "2026-10-01T05:20:00.000Z"
     }
   ],
-  "poster": {
-    "title": "2026 校园科技文化节",
-    "subtitle": "让创意被看见",
-    "time": "2026-11-14 09:00",
-    "place": "科创中心一层展厅与报告厅",
-    "org": "校学生会",
-    "slogan": "作品 · 体验 · 分享",
-    "theme": "tech",
-    "layout": "center"
-  },
+  "poster": {},
   "resources": [
     { "id": "res-staff-vol", "name": "志愿者", "kind": "staff", "phase": "execute", "unit": "人", "available": 30, "assigned": 36, "owner": "志愿者负责人", "note": "含引导、签到、秩序维护", "source": "user" },
     { "id": "res-staff-crew", "name": "工作人员", "kind": "staff", "phase": "prepare", "unit": "人", "available": 12, "assigned": 12, "owner": "活动总协调", "note": "筹备期物料与对接", "source": "user" },

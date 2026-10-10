@@ -31,7 +31,8 @@ window.WB = window.WB || {};
 
   const PHASES = ['plan', 'prepare', 'execute', 'close'];
   const KIND_LABEL = { document: '文档', table: '表格', graphic: '图形' };
-  const DELIVERABLE_OF_KIND = { document: 'word', table: 'excel', graphic: 'svg' };
+  /* 每种产出类型允许的主交付格式（合法取值集合）：图形型既能出矢量图，也能只留 Markdown 记录 */
+  const DELIVERABLE_OF_KIND = { document: ['word'], table: ['excel'], graphic: ['svg', 'markdown'], structure: ['excel'] };
   const ID_RE = /^[A-Za-z][A-Za-z0-9_-]{1,40}$/;
   const KEY_RE = /^[A-Za-z][A-Za-z0-9_-]{0,40}$/;
 
@@ -119,9 +120,9 @@ window.WB = window.WB || {};
         : 'kind 要填 document / table / graphic 之一。');
     }
     if (!PHASES.includes(phase)) errors.push('phase 要填 plan / prepare / execute / close 之一。');
-    const wantDeliverable = DELIVERABLE_OF_KIND[kind];
-    if (wantDeliverable && deliverable && deliverable !== wantDeliverable) {
-      errors.push(`deliverable 与 kind 不自洽：kind: ${kind} 的主交付格式是 ${wantDeliverable}。`);
+    const allowed = DELIVERABLE_OF_KIND[kind];
+    if (allowed && deliverable && !allowed.includes(deliverable)) {
+      errors.push(`deliverable 与 kind 不自洽：kind: ${kind} 的主交付格式是 ${allowed.join(' / ')}。`);
     }
 
     if (!KEY_RE.test(key)) errors.push('产出 key（output）不合法：字母开头，只含字母数字与 - _。');
@@ -145,7 +146,8 @@ window.WB = window.WB || {};
       ok: true,
       errors: [],
       skill: {
-        id, title, kind, phase, deliverable: wantDeliverable,
+        id, title, kind, phase,
+        deliverable: allowed && allowed.includes(deliverable) ? deliverable : (allowed ? allowed[0] : deliverable),
         key, description, sections, rules, custom: true,
         /* 正文原文：编辑面板回填「生成要求」用它——留空表示「按章节给通用口径」，
            不能把兜底规则当成用户写的规则存回去 */

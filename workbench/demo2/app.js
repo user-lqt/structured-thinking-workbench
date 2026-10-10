@@ -5,7 +5,7 @@ window.WB = window.WB || {};
   const U = window.WB.util;
   const store = window.WB.store;
   const { $, $$, escapeHtml, BASIC_FIELDS, ROLES } = U;
-  const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'assets', 'signup', 'help'];
+  const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'workflow', 'assets', 'signup', 'help'];
 
   /* 只读放行的控件特征：筛选、分段切换、导出、打开/关闭、下载、跳转都是「看」的动作。
      其余按钮、输入框、下拉框一律视为写入，只读访客会被禁用。 */
@@ -276,6 +276,7 @@ window.WB = window.WB || {};
       resources: state.resources.length,
       drills: state.drills.length,
       material: Object.keys(state.materials).length,
+      workflow: (state.workflow?.cards || []).length,
       assets: state.assets.length,
       signup: state.signup ? state.signup.records.length : 0,
       agenda: (state.project?.basic?.agenda || []).length

@@ -170,7 +170,7 @@ window.WB = window.WB || {};
 
 
   /* ── 材料 → Word / Excel ─────────────────────
-     主交付格式按产出类型定：表格型 → Excel，正文型 → Word，图形型走海报导出。
+     主交付格式按产出类型定（见 PRIMARY_FORMAT 表）：表格型 → Excel，正文型 → Word，图形型 → Markdown。
      三种格式随时都能导出，主格式只决定默认按钮。 */
   const FORMAT_LABEL = { docx: 'Word', xlsx: 'Excel', md: 'Markdown' };
   const PRIMARY_FORMAT = { table: 'xlsx', document: 'docx', structure: 'xlsx', graphic: 'md' };

@@ -3,6 +3,7 @@
   --surface: #ffffff;
   --line: #e2e8e6;
   --line-strong: #cfd8d5;
+  --flow-line: #a8b5b1;   /* 画布连线：连续的灰线（原来卡片之间是青绿实线、资料源是浅灰虚线） */
   --text: #1c2624;
   --text-soft: #5b6b67;
   --text-faint: #8b9a96;
@@ -568,7 +569,7 @@ button.summary-chip:active { transform: scale(0.97); }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 28px;
+  bottom: 84px;   /* 让开「卡片工作流」底部的悬浮工具坞（它是 bottom:12px，高约 40px） */
   transform: translate(-50%, 12px);
   background: #1c2624;
   color: #fff;
@@ -1722,22 +1723,7 @@ tr.is-blocked > td { background: #fef7f6; }
   white-space: nowrap;
 }
 
-.poster-body { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 360px); gap: 18px; align-items: start; }
-.poster-form { display: flex; flex-direction: column; gap: 10px; }
-.poster-form label { display: flex; flex-direction: column; gap: 4px; }
-.poster-form label > span { font-size: 11.5px; font-weight: 600; color: var(--text-faint); }
-.poster-form input, .poster-form select {
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: inherit;
-  font-size: 13px;
-  background: #fff;
-}
-.poster-form input:focus, .poster-form select:focus { outline: none; border-color: var(--accent); }
-.poster-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .preview-hint { font-size: 11.5px; color: var(--text-faint); margin-bottom: 6px; }
-.poster-preview svg { width: 100%; height: auto; border-radius: 10px; box-shadow: var(--shadow); display: block; }
 
 /* ── 素材库 ─────────────────────────────── */
 
@@ -1805,7 +1791,6 @@ tr.is-blocked > td { background: #fef7f6; }
 .help-table { box-shadow: none; }
 
 @media (max-width: 900px) {
-  .poster-body { grid-template-columns: 1fr; }
   .gantt-label { width: 140px; }
   .asset-filter { margin-left: 0; }
 }
@@ -2000,13 +1985,46 @@ tr.is-blocked > td { background: #fef7f6; }
 .drill-history-actions { display: flex; gap: 6px; flex: none; }
 .drill-history-actions .button { padding: 5px 9px; font-size: 12px; }
 
-/* ── 海报 AI 生图 ── */
-.poster-ai { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px; }
-.poster-ai-input { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
-.poster-ai-input textarea {
-  flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
-  font: inherit; font-size: 12.5px; resize: vertical;
+/* ── 海报 AI 生图：装配提示词 → 出图（在线排版器已下线） ── */
+.poster-ai { display: flex; flex-direction: column; }
+.poster-ai .card-title { margin-bottom: 2px; }
+.poster-brief { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.poster-brief > span { font-size: 11.5px; font-weight: 600; color: var(--text-faint); }
+.poster-brief textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+  background: #fff;
 }
+.poster-brief textarea:focus { outline: none; border-color: var(--accent); }
+.poster-prompt { margin-top: 12px; }
+.poster-prompt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.poster-prompt-head .preview-hint { margin: 0; }
+.poster-prompt-head .button { padding: 4px 10px; font-size: 12px; }
+/* 完整提示词是可改的输入框：框里是什么，就发给模型什么 */
+.poster-prompt-text {
+  display: block;
+  width: 100%;
+  min-height: 190px;
+  max-height: 340px;
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  background: #f7f9f8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-soft);
+  resize: vertical;
+}
+.poster-prompt-text:focus { outline: none; border-color: var(--accent); background: #fff; }
+.poster-ai-input { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
 .poster-ai-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
 .poster-ai-item { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
 .poster-ai-item img { width: 100%; height: 160px; object-fit: cover; display: block; background: #eef1f0; }
@@ -2551,3 +2569,319 @@ tr.is-landing > td { background-color: #d9ece7; }
   .section-row { flex-wrap: wrap; }
   .section-name { flex-basis: 100%; }
 }
+
+/* ── 卡片工作流：每张卡片 = 一个 agent（技能包 + 引用资料 + 再要求 → 文本） ── */
+.flow-board { display: flex; flex-direction: column; gap: 14px; }
+.flow-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: border-color var(--dur-quick) var(--ease-out), opacity var(--dur-quick) var(--ease-out);
+}
+.flow-card.is-done { border-color: #cfe3dd; }
+.flow-card.is-error { border-color: #e6c3bd; }
+.flow-card.is-running { border-color: var(--accent); background: #fbfdfc; }
+.flow-card.is-dragging { opacity: 0.45; }
+.flow-card.is-over-before { box-shadow: 0 -3px 0 0 var(--accent), var(--shadow); }
+.flow-card.is-over-after { box-shadow: 0 3px 0 0 var(--accent), var(--shadow); }
+.flow-card-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--line); background: #fbfdfc; flex-wrap: wrap;
+}
+.flow-handle {
+  border: none; background: none; color: var(--text-faint); font-size: 16px; line-height: 1;
+  cursor: grab; padding: 2px 4px; border-radius: 6px;
+}
+.flow-handle:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
+.flow-handle:active { cursor: grabbing; }
+.flow-handle:disabled { cursor: default; color: var(--line-strong); }
+.flow-title {
+  flex: 1 1 220px; min-width: 140px; border: 1px solid transparent; background: transparent;
+  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 14.5px; font-weight: 650; color: var(--text);
+}
+.flow-title:hover:not(:disabled) { border-color: var(--line); }
+.flow-title:focus { outline: none; border-color: var(--accent); background: #fff; }
+.flow-stage {
+  flex: none; font-size: 11.5px; font-weight: 600; padding: 2px 9px;
+  border-radius: 999px; background: #eef2f1; color: var(--text-soft);
+}
+.flow-stage.is-done { background: var(--accent-soft); color: var(--accent); }
+.flow-stage.is-running { background: var(--violet-soft); color: var(--violet); }
+.flow-stage.is-error { background: #fdf3f2; color: #c0392b; }
+.flow-card-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.flow-card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.flow-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.flow-field { display: flex; flex-direction: column; gap: 6px; }
+.flow-field > span { font-size: 12px; font-weight: 650; color: var(--text-soft); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.flow-hint { font-weight: 400; color: var(--text-faint); font-size: 11.5px; }
+.flow-skill {
+  max-width: 340px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; font: inherit; font-size: 13px; color: var(--text);
+}
+.flow-skill:focus { outline: none; border-color: var(--accent); }
+.flow-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.flow-chip {
+  border: 1px dashed var(--line-strong); background: #fff; color: var(--text-soft);
+  border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: color var(--dur-quick) var(--ease-out), border-color var(--dur-quick) var(--ease-out), background var(--dur-quick) var(--ease-out);
+}
+.flow-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.flow-chip:active:not(:disabled) { transform: scale(0.97); }
+.flow-chip.is-on { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.flow-chip:disabled { cursor: default; opacity: 0.65; }
+.flow-chip small { color: var(--text-faint); font-weight: 400; }
+.flow-chip.is-on small { color: var(--accent); }
+.flow-instruction, .flow-text {
+  width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 9px;
+  padding: 8px 10px; font: inherit; font-size: 13px; line-height: 1.65; color: var(--text);
+}
+.flow-text { padding: 10px 12px; line-height: 1.7; }
+.flow-instruction:focus, .flow-text:focus { outline: none; border-color: var(--accent); }
+.flow-empty { border: 1px dashed var(--line-strong); border-radius: 9px; padding: 12px; color: var(--text-faint); font-size: 12.5px; }
+.flow-error { border: 1px solid #e6c3bd; background: #fdf3f2; color: #b23b2c; border-radius: 9px; padding: 10px 12px; font-size: 12.5px; }
+.flow-output { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.flow-output-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: #fbfdfc; border-bottom: 1px solid var(--line); }
+.flow-output-head b { font-size: 13px; }
+.flow-output-head small { color: var(--text-faint); font-size: 11.5px; }
+.flow-output-head .flow-warn { color: #b23b2c; }
+.flow-output-actions { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.flow-md { padding: 12px 14px; }
+.flow-empty-card .empty { padding: 18px; }
+.button.small { padding: 4px 10px; font-size: 12.5px; }
+@media (max-width: 720px) {
+  .flow-card-actions { margin-left: 0; }
+  .flow-skill { max-width: none; width: 100%; }
+}
+
+/* ── 卡片工作流 · 二维画布 ────────────────────────────────────────
+   一块可平移缩放的画布：卡片是节点，引用关系是带箭头的连线。
+   画布只负责「编排 + 预览」，深度编辑仍然在「过程材料」页。 */
+.flow-canvas {
+  position: relative; margin-top: 12px;
+  /* 高度按「视口 − 画布上方那些东西」算，别再用视口百分比：
+     62vh 在 768 高的笔记本上（476px）会把画布底边推到屏幕外 100px，工具坞直接看不见。
+     下限 320px 是给小窗口留的，真要更大就用工具坞右端的「放大画布」。 */
+  height: clamp(320px, calc(100vh - 408px), 760px);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background-color: var(--surface);
+  background-image: radial-gradient(circle at 1px 1px, rgba(28, 38, 36, 0.14) 1px, transparent 0);
+  background-size: 22px 22px;
+  overflow: hidden; cursor: grab; touch-action: none;
+  /* 拖动是手势不是选字：画布里的文字一律不可选（要选中正文请开卡片弹窗，或点「复制」） */
+  user-select: none; -webkit-user-select: none;
+  box-shadow: inset 0 1px 2px rgba(28, 38, 36, 0.03);
+}
+.flow-canvas.is-panning { cursor: grabbing; }
+
+/* ── 放大画布（沉浸模式）─────────────────────────
+   收起页面顶部的导航与说明，把画布铺满窗口。状态挂在 #workflowPanel 上，
+   用 :has 往上够到 .topbar / .tabs；切到别的视图时面板会带上 .hidden，
+   选择器自动失效，所以不会把整站的导航一直藏住。
+   画布高度 = 视口高度 − 画布上方那些东西（这个常数是真机量完定的）。 */
+body:has(#workflowPanel.is-immersive:not(.hidden)) .topbar,
+body:has(#workflowPanel.is-immersive:not(.hidden)) .tabs { display: none; }
+body:has(#workflowPanel.is-immersive:not(.hidden)) .shell { max-width: none; padding: 12px 16px 14px; }
+body:has(#workflowPanel.is-immersive:not(.hidden)) #workflowPanel .panel-head { margin-bottom: 10px; }
+body:has(#workflowPanel.is-immersive:not(.hidden)) #workflowPanel .panel-head p:not(.skill-summary) { display: none; }
+body:has(#workflowPanel.is-immersive:not(.hidden)) #workflowPanel .flow-canvas { height: calc(100vh - 118px); }
+.flow-canvas-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.flow-canvas-hint {
+  position: absolute; left: 14px; top: 12px; right: 220px; margin: 0;
+  font-size: 12px; line-height: 1.5; color: var(--text-faint); pointer-events: none; z-index: 3;
+}
+.flow-canvas-hint b { color: var(--accent); }
+.flow-canvas-tools {
+  position: absolute; right: 12px; top: 10px; z-index: 4;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow);
+}
+.flow-canvas-tools .button { padding: 3px 9px; font-size: 11.5px; }
+.flow-zoom { min-width: 36px; text-align: center; font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.flow-canvas-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; pointer-events: none; }
+.flow-canvas-empty .card { pointer-events: auto; max-width: 520px; }
+
+.flow-edges { position: absolute; overflow: visible; pointer-events: none; }
+.flow-edge { fill: none; stroke: var(--flow-line); stroke-width: 1.4; stroke-linecap: round; }
+.flow-edge.is-from { stroke-width: 2.2; }
+.flow-edge.is-ref { stroke-opacity: 0.6; }
+.flow-edge.is-temp { stroke: var(--accent); stroke-width: 2.2; }
+.flow-edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
+.flow-edge-hit:hover + .flow-edge { stroke: var(--text-soft); stroke-width: 3.4; }
+/* 箭头跟着线走同一个灰：marker 里的 path 不写 fill 默认是纯黑，一串黑点在浅灰线上特别扎眼 */
+#flowArrow path { fill: var(--flow-line); }
+
+.flow-node {
+  position: absolute; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px 8px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.flow-node.is-running { border-color: var(--violet); background: #fdfcff; }
+.flow-node.is-error { border-color: #e6c3bd; }
+.flow-node.is-done { border-color: #cfe3dd; }
+.flow-node.is-dragging { z-index: 5; cursor: grabbing; box-shadow: 0 14px 32px rgba(28, 38, 36, 0.22); }
+.flow-node-head { display: flex; align-items: center; gap: 6px; cursor: grab; }
+.flow-node-grip { color: var(--text-faint); font-size: 12px; letter-spacing: -1px; }
+.flow-node-title { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-node-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-faint); }
+.flow-node-skill { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-node-count { font-variant-numeric: tabular-nums; }
+.flow-node-text {
+  margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-soft);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.flow-node-text.is-muted { color: var(--text-faint); }
+.flow-node-foot { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.flow-node-foot .button { padding: 2px 8px; font-size: 11px; }
+.flow-node-link {
+  position: absolute; right: -11px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line-strong); background: var(--surface);
+  color: var(--text-faint); font-size: 14px; line-height: 1; cursor: crosshair;
+  transition: transform var(--dur-press) var(--ease-out), border-color var(--dur-quick) var(--ease-out);
+}
+.flow-node-link:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); transform: translateY(-50%) scale(1.12); }
+.flow-node-link:disabled { opacity: 0.4; cursor: default; }
+.flow-node.is-linking .flow-node-link { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.flow-pill {
+  position: absolute; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  height: 40px; padding: 0 12px; border: 1px dashed var(--line-strong);
+  border-radius: 999px; background: var(--surface);
+  font-size: 12px; color: var(--text-soft); cursor: grab;
+  transition: border-color var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
+}
+.flow-pill b { font-weight: 600; }
+.flow-pill small { font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.flow-pill:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.flow-pill.is-used { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.flow-pill.is-used small { color: var(--accent); }
+.flow-pill:disabled { opacity: 0.6; cursor: default; }
+
+.flow-mode { flex: 0 0 auto; }
+
+.flow-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.flow-modal-mask { position: absolute; inset: 0; background: rgba(28, 38, 36, 0.42); animation: flowFade var(--dur-enter) var(--ease-out); }
+.flow-modal-box {
+  position: relative; display: flex; flex-direction: column; gap: 10px;
+  width: min(760px, 100%); max-height: 88vh; overflow: auto;
+  padding: 14px 16px 16px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(28, 38, 36, 0.3);
+  animation: flowRise var(--dur-enter) var(--ease-out);
+}
+.flow-modal-head { display: flex; align-items: center; gap: 8px; }
+.flow-modal-head .flow-title { flex: 1; }
+.flow-modal-body { display: flex; flex-direction: column; gap: 10px; }
+.flow-modal-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.flow-modal-foot .button.danger { margin-left: auto; }
+.flow-node-link:focus-visible, .flow-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes flowFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes flowRise { from { opacity: 0; transform: translateY(10px) scale(0.99); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 720px) {
+  .flow-canvas { height: 60vh; }
+  .flow-canvas-hint { right: 14px; font-size: 11px; }
+  .flow-canvas-tools { top: auto; bottom: 10px; right: 10px; }
+  .flow-modal { padding: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-modal-mask, .flow-modal-box { animation: none; }
+  .flow-node-link { transition: none; }
+}
+/* ── 画布缩略图：画布比一屏大时的「我在哪」与快速跳转 ── */
+.flow-map {
+  position: absolute; right: 14px; bottom: 14px; z-index: 3;
+  padding: 6px 6px 3px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow); user-select: none;
+  transition: opacity var(--dur-quick, 160ms) var(--ease-out, ease);
+}
+.flow-map-body {
+  position: relative; width: 172px; height: 108px; overflow: hidden;
+  border-radius: 6px; background: rgba(28, 38, 36, 0.05); cursor: pointer;
+}
+.flow-map-node { position: absolute; display: block; border-radius: 2px; background: #c3cfcc; }
+.flow-map-node.is-done { background: var(--accent); }
+.flow-map-node.is-error { background: #c0563f; }
+.flow-map-view {
+  position: absolute; display: block; border: 1.5px solid var(--accent); border-radius: 3px;
+  background: rgba(15, 122, 108, 0.12); pointer-events: none;
+}
+.flow-map.is-off { opacity: 0; pointer-events: none; }
+.flow-map-label { display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.4; color: var(--text-faint); text-align: center; }
+@media (max-width: 760px) { .flow-map { display: none; } }
+
+/* ── 底部悬浮工具坞：参照成熟画布工具的做法，工具收在底部居中，不挡卡片 ── */
+.flow-dock {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5;
+  display: flex; align-items: center; gap: 3px; padding: 5px 8px; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(28, 38, 36, 0.13);
+}
+.flow-dock-tabs { display: flex; align-items: center; gap: 2px; padding: 2px; background: rgba(28, 38, 36, 0.05); border-radius: 999px; }
+.flow-dock-tab, .flow-dock-btn {
+  appearance: none; border: 0; background: transparent; color: var(--text-soft); cursor: pointer;
+  font: inherit; font-size: 11.5px; line-height: 1; padding: 6px 9px; border-radius: 8px;
+  transition: background var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
+}
+.flow-dock-tab { border-radius: 999px; padding: 5px 11px; }
+.flow-dock-tab:hover, .flow-dock-btn:hover { background: rgba(28, 38, 36, 0.07); color: var(--text); }
+.flow-dock-tab.is-active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(28, 38, 36, 0.14); }
+.flow-dock-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.flow-dock-btn:disabled:hover { background: transparent; color: var(--text-soft); }
+.flow-dock-btn.is-off { background: var(--accent-soft); color: var(--accent); }
+.flow-dock-btn.flow-zoom { min-width: 44px; text-align: center; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.flow-dock-sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
+@media (max-width: 900px) {
+  .flow-dock { flex-wrap: wrap; justify-content: center; border-radius: 16px; max-width: calc(100% - 20px); white-space: normal; row-gap: 2px; }
+}
+
+/* 卡片节点：左侧入端口（有上游才点亮）、收起按钮、被搜索跳中时闪一下 */
+.flow-node-port {
+  position: absolute; left: -5px; top: 24px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--line-strong);
+}
+.flow-node-port.is-live { border-color: var(--accent); background: var(--accent-soft); }
+.flow-node-fold {
+  margin-left: auto; appearance: none; border: 0; background: transparent; cursor: pointer;
+  color: var(--text-faint); font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 6px;
+}
+.flow-node-fold:hover { background: rgba(28, 38, 36, 0.08); color: var(--text); }
+.flow-node-fold:disabled { opacity: 0.4; cursor: not-allowed; }
+.flow-node.is-collapsed { min-height: 0; }
+@keyframes flowFlash { 0%, 100% { box-shadow: var(--shadow); } 40% { box-shadow: 0 0 0 4px rgba(15, 122, 108, 0.28), var(--shadow); } }
+.flow-node.is-flash { animation: flowFlash 620ms var(--ease-out) 2; border-color: var(--accent); }
+.flow-canvas input, .flow-canvas textarea, .flow-canvas [contenteditable="true"] {
+  user-select: text; -webkit-user-select: text;
+}
+/* 手势进行中：整页都别选字（指针可能拖到画布外面，比如上面的页面标题） */
+body.is-gesturing, body.is-gesturing * { user-select: none !important; -webkit-user-select: none !important; }
+.flow-canvas.is-hand { cursor: grab; }
+.flow-canvas.is-hand .flow-node, .flow-canvas.is-hand .flow-node-head, .flow-canvas.is-hand .flow-node-title { cursor: grab; }
+
+/* 搜索画布（⌘K）：与配置窗同一套遮罩，落在上方三分之一处 */
+.flow-palette { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-start; justify-content: center; padding: 11vh 16px 16px; }
+.flow-palette-box {
+  position: relative; width: min(560px, 100%); overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(28, 38, 36, 0.22); animation: flowRise var(--dur-enter) var(--ease-out);
+}
+.flow-palette-input {
+  display: block; width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid var(--line);
+  padding: 13px 16px; font: inherit; font-size: 13.5px; color: var(--text); background: var(--surface); outline: none;
+}
+.flow-palette-list { list-style: none; margin: 0; padding: 6px; max-height: 46vh; overflow-y: auto; }
+.flow-palette-item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%;
+  text-align: left; border: 0; background: transparent; cursor: pointer; font: inherit; color: var(--text);
+  padding: 8px 10px; border-radius: 9px;
+}
+.flow-palette-item b { font-weight: 600; font-size: 13px; }
+.flow-palette-item small { color: var(--text-faint); font-size: 11px; white-space: nowrap; }
+.flow-palette-item:hover, .flow-palette-item.is-active { background: var(--accent-soft); }
+.flow-palette-empty { padding: 14px 12px; color: var(--text-faint); font-size: 12.5px; }
+.flow-palette-foot { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--text-faint); font-size: 11.5px; }
+@media (prefers-reduced-motion: reduce) { .flow-node.is-flash { animation: none; } .flow-palette-box { animation: none; } }
