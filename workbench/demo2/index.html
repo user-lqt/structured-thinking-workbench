@@ -176,7 +176,7 @@
           <div class="panel-head">
             <div>
               <h2>项目库</h2>
-              <p>所有活动项目都保存在本机浏览器里，彼此互不干扰；可切换、复制、归档，或导出项目包跨设备迁移。</p>
+              <p>本机项目可切换、复制、归档和导出；点击「开启多人共享」邀请成员共同编辑，修改按版本同步，冲突时保留本机草稿。</p>
             </div>
           </div>
           <div id="projectsToolbar" class="assets-toolbar"></div>
@@ -324,12 +324,12 @@
         <section class="panel hidden" id="assetsPanel">
           <div class="panel-head">
             <div>
-              <h2>多模态素材库</h2>
-              <p>登记图片、文案与参考链接；生成宣传材料时会作为上下文一并交给模型。</p>
+              <h2>知识库与多模态素材库</h2>
+              <p>知识库保存流程、规范与经验；素材库保存图片、文案和文件。登记来源并选择 AI 引用，生成材料时带入可读正文。</p>
               <p id="assetSummary" class="skill-summary"></p>
             </div>
             <div class="panel-actions">
-              <button class="button button-ghost" id="exportAssets">导出素材清单</button>
+              <button class="button button-ghost" id="exportAssets">导出当前资料库</button>
             </div>
           </div>
           <div class="assets-toolbar" id="assetsToolbar"></div>
@@ -355,7 +355,7 @@
 
     <input type="file" id="templateFile" accept=".docx,.md,.markdown,.txt" hidden />
     <input type="file" id="referenceFile" accept=".docx,.md,.markdown,.txt" hidden />
-    <input type="file" id="assetFile" accept="image/*,.txt,.md,.csv,.json" multiple hidden />
+    <input type="file" id="assetFile" accept="image/*,.txt,.md,.csv,.json,.docx,.pdf" multiple hidden />
     <input type="file" id="bundleFile" accept=".json" hidden />
     <input type="file" id="projectBundleFile" accept=".json" hidden />
     <input type="file" id="signupFile" accept=".csv,.txt,.json" hidden />
@@ -364,9 +364,11 @@
     <script src="./schemas.js"></script>
     <script src="./materials.js"></script>
     <script src="./core/util.js"></script>
+    <script src="./core/library.js"></script>
     <script src="./core/qr.js"></script>
     <script src="./core/signup.js"></script>
     <script src="./core/store.js"></script>
+    <script src="./core/sync.js"></script>
 <script src="./core/skills.js"></script>
     <script src="./core/risk.js"></script>
     <script src="./core/wbs.js"></script>

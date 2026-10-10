@@ -22,6 +22,7 @@ window.WB.views = window.WB.views || {};
     { key: 'risks', label: '风险台账' },
     { key: 'resources', label: '资源台账' },
     { key: 'assets', label: '素材库' },
+    { key: 'knowledge', label: '知识库' },
     { key: 'decision', label: '方案比选' },
     { key: 'signup', label: '参与者信息' },
     { key: 'materials', label: '过程材料' }
@@ -109,7 +110,8 @@ window.WB.views = window.WB.views || {};
       case 'wbs': return current.wbs.length;
       case 'risks': return current.risks.length;
       case 'resources': return (current.resources || []).length;
-      case 'assets': return current.assets.length;
+      case 'assets': return window.WB.library.list(current.assets, 'assets').filter(window.WB.library.included).length;
+      case 'knowledge': return window.WB.library.list(current.assets, 'knowledge').filter(window.WB.library.included).length;
       case 'decision': return current.options?.decision ? 1 : 0;
       case 'signup': return current.signup?.records?.length || 0;
       case 'materials': return Object.keys(current.materials || {}).length;
@@ -146,11 +148,13 @@ window.WB.views = window.WB.views || {};
       else if (key === 'resources') out['资源台账'] = (current.resources || []).map((item) => ({
         资源: item.name, 类型: item.kind, 单位: item.unit, 可用: item.available, 已安排: item.assigned, 责任人: item.owner, 说明: item.note
       }));
-      else if (key === 'assets') out['素材库'] = current.assets.map((asset) => ({ 名称: asset.name, 类型: asset.kind, 标签: (asset.tags || []).join('/'), 说明: asset.note }));
+      else if (key === 'assets') out['素材库'] = window.WB.library.context(current.assets, 'assets');
+      else if (key === 'knowledge') out['知识库'] = window.WB.library.context(current.assets, 'knowledge');
       else if (key === 'decision') out['方案比选结论'] = current.options?.decision || '未进行比选';
       else if (key === 'signup') out['参与者信息'] = window.WB.signup ? window.WB.signup.contextFor(current.signup) : '未启用';
       else if (key === 'materials') out['过程材料'] = materialDigest();
     }
+    out['资料引用规则'] = window.WB.library.rule;
     const upstream = card.from.map((id) => find(id)).filter(Boolean).map((item) => ({
       卡片: item.title, 使用技能: skillLabel(item.skill), 正文: clip(item.output?.text || '（这张卡片还没运行，没有正文）', 4000)
     }));
@@ -195,6 +199,8 @@ window.WB.views = window.WB.views || {};
     const card = find(id);
     if (!card) return false;
     if (running.has(id)) return false;
+    if (card.from.some((up) => !find(up)?.output?.text || find(up)?.status === 'error')) { window.WB.toast('先运行并确认上游卡片，再运行这张卡片'); return false; }
+    const projectId = state().activeId;
     remember('运行卡片');
     if (!window.WB.ai.ready) { if (!silent) window.WB.toast('未连接 AI，离线模式不能运行卡片'); return false; }
     running.add(id);
@@ -211,6 +217,7 @@ window.WB.views = window.WB.views || {};
         body: JSON.stringify(body)
       });
       const payload = await res.json().catch(() => ({}));
+      if (projectId !== state().activeId || find(id) !== card) return false;
       if (!res.ok) throw new Error(payload.error || `请求失败（HTTP ${res.status}）`);
       const text = textOf(payload.data);
       if (!text) throw new Error('AI 没有返回正文，请重试');
@@ -224,6 +231,7 @@ window.WB.views = window.WB.views || {};
       if (!silent) window.WB.toast(`《${card.title}》已生成 ${text.length} 字`);
       return true;
     } catch (error) {
+      if (projectId !== state().activeId || find(id) !== card) return false;
       card.status = 'error';
       card.error = error.message || '运行失败';
       store().save();
@@ -239,15 +247,65 @@ window.WB.views = window.WB.views || {};
   async function runAll() {
     if (!U.canOperate()) { window.WB.toast('只读访客不能运行卡片'); return; }
     if (!window.WB.ai.ready) { window.WB.toast('未连接 AI，离线模式不能运行卡片'); return; }
-    const list = cards().slice();
+    if (running.size || batchRunning) { window.WB.toast('工作流正在运行，请等待完成'); return; }
+    let list;
+    try { list = executionOrder(); } catch (error) { window.WB.toast(error.message); return; }
     if (!list.length) { window.WB.toast('还没有卡片'); return; }
+    const projectId = state().activeId;
+    batchRunning = true;
     let done = 0;
-    for (const card of list) {
-      window.WB.toast(`正在运行《${card.title}》（${done + 1}/${list.length}）…`);
-      if (await runCard(card.id, { silent: true })) done += 1;
+    const failed = new Set();
+    try {
+      for (const card of list) {
+        if (projectId !== state().activeId) break;
+        if (card.from.some((id) => failed.has(id))) { failed.add(card.id); continue; }
+        if (await runCard(card.id, { silent: true })) done++; else failed.add(card.id);
+      }
+    } finally { batchRunning = false; render(); }
+    window.WB.toast(`工作流完成：成功 ${done} 张，失败或因上游失败跳过 ${failed.size} 张`);
+  }
+
+  let batchRunning = false;
+  function executionOrder() {
+    const ordered = [], visiting = new Set(), visited = new Set();
+    function visit(card) {
+      if (visiting.has(card.id)) throw new Error('卡片引用形成循环，请先断开循环连线');
+      if (visited.has(card.id)) return;
+      visiting.add(card.id);
+      for (const id of card.from) { const upstream = find(id); if (!upstream) throw new Error('卡片引用不存在，请移除失效引用'); visit(upstream); }
+      visiting.delete(card.id); visited.add(card.id); ordered.push(card);
     }
-    render();
-    window.WB.toast(`工作流跑完：成功 ${done}/${list.length} 张`);
+    cards().forEach(visit); return ordered;
+  }
+
+  function addStarter() {
+    if (!U.canOperate()) return;
+    const brief = addCard({ title: '活动执行口径', refs: ['project', 'agenda', 'wbs', 'risks'], instruction: '整理活动目标、受众、安排和待确认事项，作为下游通知与现场执行的统一依据。' });
+    if (!brief) return;
+    addCard({ title: '参与者通知', skill: 'promo-copy', refs: ['project', 'agenda'], from: [brief.id], instruction: '面向参与者写清时间地点、报名与到场方式、注意事项。' });
+    addCard({ title: '现场岗位简报', skill: 'training-brief', refs: ['resources', 'risks', 'agenda'], from: [brief.id], instruction: '面向工作人员列出岗位、到岗时间、签到签退要求、应急联系人。' });
+    autoLayout();
+  }
+
+  function writeMaterial(id) {
+    if (!U.canOperate()) return false;
+    const card = find(id), item = U.OUTPUT_ITEMS.find((item) => item.skill === card?.skill);
+    if (!card?.output?.text || !item) { window.WB.toast('请选择对应产出技能并填写正文后再写入材料'); return false; }
+    if (state().materials[item.key] && !confirm('该材料已有正文，确定用卡片结果替换？原正文将保留在工作流材料备份中。')) return false;
+    state().workflow.materialBackups ||= {};
+    if (state().materials[item.key]) state().workflow.materialBackups[item.key] = JSON.parse(JSON.stringify(state().materials[item.key]));
+    const sections = [];
+    let heading = card.output.title || card.title, lines = [];
+    for (const line of card.output.text.split('\n')) {
+      const match = line.match(/^#{1,2}\s+(.+)$/);
+      if (match) { if (lines.length) sections.push({ heading, body: lines.join('\n').trim() }); heading = match[1]; lines = []; }
+      else lines.push(line);
+    }
+    if (lines.length || !sections.length) sections.push({ heading, body: lines.join('\n').trim() });
+    state().materials[item.key] = { title: card.output.title || card.title, sections, generatedAt: nowIso(), source: 'user', templateName: '卡片工作流', workflowCardId: id };
+    state().project.outputs[item.key] = true;
+    store().log('workflow', `卡片《${card.title}》写入过程材料`); store().save();
+    window.WB.renderPanelsMeta?.(); render(); window.WB.toast('已写入过程材料，可继续编辑与导出'); return true;
   }
 
   /* ── 卡片增删改与排序 ─────────────────── */
@@ -379,7 +437,7 @@ window.WB.views = window.WB.views || {};
     if (card.status === 'error' && !card.output) return `<div class="flow-error">运行失败：${escapeHtml(card.error || '未知错误')}（改一下再要求或引用资料，重试即可）</div>`;
     if (!card.output) {
       const off = window.WB.ai.ready ? '' : '（当前未连接 AI，离线时只能手动写：先在别的材料里生成，或点「改正文」自己写）';
-      return `<div class="flow-empty">还没运行。点右上角「▶ 运行」，AI 会按引用资料与再要求写出正文。${off}</div>`;
+      return `<div class="flow-empty">还没运行。点右上角「▶ 运行」，AI 会按引用资料与再要求写出正文。${off}${canWrite ? `<button class="button button-ghost" data-flow-manual="${card.id}" data-write>手动撰写正文</button>` : ''}</div>`;
     }
     const editing = previewMode.get(card.id) === 'text';
     const rendered = window.WB.markdown?.toHtml?.(card.output.text) || '';
@@ -392,6 +450,7 @@ window.WB.views = window.WB.views || {};
           <button type="button" class="button button-ghost small" data-flow-edit="${card.id}">${editing ? '看排版' : '改正文'}</button>
           <button type="button" class="button button-ghost small" data-flow-copy="${card.id}">复制文本</button>
           <button type="button" class="button button-ghost small" data-flow-card-export="${card.id}">导出 .md</button>
+          ${U.OUTPUT_ITEMS.some((item) => item.skill === card.skill) ? `<button type="button" class="button button-ghost small" data-flow-material="${card.id}" data-write>写入过程材料</button>` : ''}
         </div>
       </div>
       ${editing
@@ -450,7 +509,8 @@ window.WB.views = window.WB.views || {};
       <div class="panel-head">
         <div>
           <h2>卡片工作流</h2>
-          <p>把工作台当一组 agent 用：每张卡片挑一个技能包、勾选要引用的资料（还能引用别的卡片输出），再写上你自己的要求，它就输出一段能直接用的正文。</p>
+          <p>用于「一份活动口径，派生多份材料」：输入项目事实 → 整理执行口径 → 引用它生成通知、岗位简报等。连线表示下游使用上游正文；修改上游后，重跑下游才能更新。</p>
+          <p>标准材料可在「过程材料」直接编辑；需要复用同一份口径时用卡片串联。卡片出稿后点「写入过程材料」，即可进入主线材料与阶段检查。</p>
           <p>${modeHint}</p>
           <p id="flowSummary" class="skill-summary">${escapeHtml(summary)}</p>
         </div>
@@ -460,6 +520,7 @@ window.WB.views = window.WB.views || {};
             <button type="button" data-flow-view="list" class="${mode === 'list' ? 'is-active' : ''}">列表</button>
           </div>
           <button type="button" class="button button-ghost" data-flow-from-outputs data-write>＋ 按产出配置生成卡片</button>
+          <button type="button" class="button button-ghost" data-flow-starter data-write>＋ 示例：口径 → 通知 / 岗位简报</button>
           <button type="button" class="button button-ghost" data-flow-add data-write>＋ 新建卡片</button>
           <button type="button" class="button button-primary" data-flow-run-all data-write>▶ 运行全部</button>
           <button type="button" class="button button-ghost" data-flow-export="word">导出 Word</button>
@@ -582,6 +643,11 @@ window.WB.views = window.WB.views || {};
       if (event.target.closest('[data-flow-run-all]')) { runAll(); return; }
       if (event.target.closest('[data-flow-add]')) { addCard(); return; }
       if (event.target.closest('[data-flow-from-outputs]')) { addFromOutputs(); return; }
+      if (event.target.closest('[data-flow-starter]')) { addStarter(); return; }
+      const material = hit('data-flow-material');
+      if (material) { writeMaterial(material.dataset.flowMaterial); return; }
+      const manual = hit('data-flow-manual');
+      if (manual) { if (!U.canOperate()) return; const card = find(manual.dataset.flowManual); if (!card) return; card.output = { title: card.title, text: '', at: nowIso(), model: '手工' }; previewMode.set(card.id, 'text'); store().save(); render(); return; }
       const del = hit('data-flow-del');
       if (del) {
         const card = find(del.dataset.flowDel);
@@ -611,6 +677,7 @@ window.WB.views = window.WB.views || {};
       }
       const all = hit('data-flow-export');
       if (all) {
+        if (all.hasAttribute('data-flow-card-word')) return;
         const kind = all.dataset.flowExport;
         if (kind === 'json') exportJson();
         else if (kind === 'word') exportWord();
@@ -620,12 +687,13 @@ window.WB.views = window.WB.views || {};
 
     /* 打字只改内存，落盘交给 focusout；不重绘，免得打断输入 */
     panel.addEventListener('input', (event) => {
+      if (!U.canOperate()) return;
       const title = event.target.closest('[data-flow-title]');
       if (title) { const card = find(title.dataset.flowTitle); if (card) { markEdit(title, '改卡片名'); card.title = title.value; } return; }
       const ins = event.target.closest('[data-flow-instruction]');
       if (ins) { const card = find(ins.dataset.flowInstruction); if (card) { markEdit(ins, '改再要求'); card.instruction = ins.value; } return; }
       const text = event.target.closest('[data-flow-text]');
-      if (text) { const card = find(text.dataset.flowText); if (card?.output) { markEdit(text, '改正文'); card.output.text = text.value; } return; }
+      if (text) { const card = find(text.dataset.flowText); if (card?.output) { markEdit(text, '改正文'); card.output.text = text.value; card.output.at = nowIso(); card.status = U.text(text.value) ? 'done' : 'draft'; } return; }
       /* 搜索框：只重画搜索面板本身，整页重绘会把输入焦点丢掉 */
       const search = event.target.closest('[data-flow-palette-input]');
       if (search && palette) { palette.query = search.value; palette.index = 0; paintPalette(); }
@@ -1866,6 +1934,10 @@ window.WB.views = window.WB.views || {};
     mount,
     runCard,
     runAll,
+    get busy() { return running.size > 0 || batchRunning; },
+    executionOrder,
+    addStarter,
+    writeMaterial,
     addCard,
     addFromOutputs,
     deleteCard,

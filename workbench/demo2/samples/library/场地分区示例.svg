@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <rect width="960" height="600" fill="#f0f5f2"/>
+  <g font-family="Microsoft YaHei, sans-serif" fill="#193d36">
+    <text x="55" y="75" font-size="35" font-weight="700">活动场地分区 · 教学示意</text>
+    <text x="55" y="113" font-size="18" fill="#52736a">按区域分工组织岗位，实际布局须现场勘察和确认</text>
+    <rect x="55" y="155" width="250" height="325" rx="16" fill="#dbebe4" stroke="#8db7a5" stroke-width="2"/>
+    <rect x="330" y="155" width="575" height="155" rx="16" fill="#d4e8ee" stroke="#8bb5c2" stroke-width="2"/>
+    <rect x="330" y="335" width="335" height="145" rx="16" fill="#f4e7c9" stroke="#c7b478" stroke-width="2"/>
+    <rect x="690" y="335" width="215" height="145" rx="16" fill="#e1dff0" stroke="#aaa2c3" stroke-width="2"/>
+    <text x="180" y="292" text-anchor="middle" font-size="31" font-weight="700">签到区</text>
+    <text x="180" y="329" text-anchor="middle" font-size="18">登记与观众引导</text>
+    <text x="618" y="229" text-anchor="middle" font-size="31" font-weight="700">互动展区</text>
+    <text x="618" y="267" text-anchor="middle" font-size="18">展位说明与体验</text>
+    <text x="498" y="399" text-anchor="middle" font-size="31" font-weight="700">分享区</text>
+    <text x="498" y="438" text-anchor="middle" font-size="18">主题交流与主持</text>
+    <text x="798" y="397" text-anchor="middle" font-size="24" font-weight="700">工作人员</text>
+    <text x="798" y="433" text-anchor="middle" font-size="22">服务区</text>
+    <text x="55" y="548" font-size="18" fill="#52736a">未标定尺寸、容纳人数或疏散路线，不是正式安全方案</text>
+  </g>
+</svg>

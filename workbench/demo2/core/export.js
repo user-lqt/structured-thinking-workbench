@@ -154,17 +154,8 @@ window.WB = window.WB || {};
   }
 
   function assetsToMarkdown() {
-    const state = window.WB.store.state;
-    const lines = [`# ${projectName()}｜素材库清单`, ''];
-    if (!state.assets.length) return `${lines.join('\n')}\n尚未登记素材。\n`;
-    lines.push(row(['名称', '类型', '阶段', '标签', '说明', '登记时间']));
-    lines.push(row(['---', '---', '---', '---', '---', '---']));
-    for (const asset of state.assets) {
-      lines.push(row([asset.name, asset.kind, PHASE_LABEL[asset.phase] || asset.phase || '', (asset.tags || []).join(' / '),
-        asset.note || '', U.fmtDateTime(asset.createdAt)]));
-    }
-    lines.push('');
-    return lines.join('\n');
+    const items = window.WB.store.state.assets;
+    return [`# ${projectName()}｜知识与素材档案`, '', window.WB.library.toMarkdown(items, 'knowledge'), '', window.WB.library.toMarkdown(items, 'assets')].join('\n');
   }
 
 

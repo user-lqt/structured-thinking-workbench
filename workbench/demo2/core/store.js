@@ -161,7 +161,7 @@ window.WB = window.WB || {};
 
   /* 卡片工作流的卡片：技能包 + 引用资料 + 再要求 + 输出。资料源固定为工作台里已有的那几份数据，
      载入 / 导入时把不认识的键过滤掉，老项目没有这个字段也能安全打开（补一个空列表）。 */
-  const WORKFLOW_SOURCES = new Set(['project', 'agenda', 'wbs', 'risks', 'resources', 'assets', 'decision', 'signup', 'materials']);
+  const WORKFLOW_SOURCES = new Set(['project', 'agenda', 'wbs', 'risks', 'resources', 'assets', 'knowledge', 'decision', 'signup', 'materials']);
   const WORKFLOW_STATUS = { draft: '草稿', done: '已完成', error: '失败' };
 
   function normaliseCard(raw) {
@@ -191,7 +191,7 @@ window.WB = window.WB || {};
   }
 
   function normaliseWorkflow(raw) {
-    return { cards: Array.isArray(raw?.cards) ? raw.cards.map(normaliseCard) : [] };
+    return { cards: Array.isArray(raw?.cards) ? raw.cards.map(normaliseCard) : [], ...(raw?.materialBackups && typeof raw.materialBackups === 'object' ? { materialBackups: raw.materialBackups } : {}) };
   }
 
   function migrateDoc(raw) {
@@ -228,7 +228,7 @@ window.WB = window.WB || {};
     doc.references = raw.references && typeof raw.references === 'object' ? raw.references : {};
     doc.fillDrafts = raw.fillDrafts && typeof raw.fillDrafts === 'object' ? raw.fillDrafts : {};
     doc.options = { ...freshProjectDoc().options, ...(raw.options || {}) };
-    doc.assets = raw.assets || [];
+    doc.assets = Array.isArray(raw.assets) ? raw.assets.filter((item) => item && typeof item === 'object') : [];
     doc.poster = raw.poster && typeof raw.poster === 'object' ? raw.poster : {};
     doc.resources = Array.isArray(raw.resources) ? raw.resources.map(normaliseResource) : [];
     doc.drills = Array.isArray(raw.drills) ? raw.drills.map(normaliseDrill) : [];
@@ -292,6 +292,7 @@ window.WB = window.WB || {};
         localStorage.setItem(DOC_PREFIX + state.activeId, JSON.stringify(doc));
       }
       localStorage.setItem(INDEX_KEY, JSON.stringify(indexPayload()));
+      window.WB.sync?.onSave();
     } catch (error) {
       window.WB.toast?.('本地存储写入失败，可能已超出浏览器容量限制；建议导出项目包后清理素材');
       console.warn('[工作台] 保存失败', error);

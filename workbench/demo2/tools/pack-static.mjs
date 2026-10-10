@@ -23,20 +23,23 @@ function die(message) {
 }
 
 /* 发布清单：逐个写出来，不用通配符扫目录——宁可多写几行，也不要误把别的东西带出去。 */
-const CORE = ['util', 'qr', 'signup', 'store', 'skills', 'risk', 'wbs', 'guide', 'drills', 'ai', 'interview', 'markdown', 'ooxml', 'docx', 'export'];
+const CORE = ['util', 'library', 'qr', 'signup', 'store', 'sync', 'skills', 'risk', 'wbs', 'guide', 'drills', 'ai', 'interview', 'markdown', 'ooxml', 'docx', 'export'];
 const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'workflow', 'assets', 'signup', 'help'];
 const PAGES = [
   'index.html', 'signup.html', 'styles.css', 'app.js', 'schemas.js', 'materials.js',
   ...CORE.map((name) => `core/${name}.js`),
   ...VIEWS.map((name) => `views/${name}.js`),
   'samples/示例项目-校园科技文化节.json',
-  'samples/示例-学院活动策划书模板.docx'
+  'samples/示例-学院活动策划书模板.docx',
+  'samples/知识与素材示例.json',
+  'samples/library/活动宣传示例.svg',
+  'samples/library/场地分区示例.svg'
 ];
 
 /* 这些一律不许出现在产物里（.env 在仓库根，不属于 demo2，这里仍然拦一道）。 */
 const FORBIDDEN = ['.env', 'server.mjs', 'tools/', 'docs/', 'generated/', 'package', 'node_modules', '.git'];
 /* 输出目录落在这些子目录里等于覆盖源码，直接拒绝。 */
-const SOURCE_DIRS = ['core', 'views', 'samples', 'skills', 'tools', 'docs'];
+const SOURCE_DIRS = ['core', 'views', 'samples', 'skills', 'tools', 'docs', 'server'];
 
 const argv = process.argv.slice(2);
 const has = (name) => argv.includes(name) || (name === '--help' && argv.includes('-h'));

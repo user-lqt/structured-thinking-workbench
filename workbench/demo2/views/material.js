@@ -1396,7 +1396,9 @@ window.WB.views = window.WB.views || {};
       资源台账: (current.resources || []).map((item) => ({
         资源: item.name, 类型: kindLabel(item.kind), 单位: item.unit, 可用: item.available, 已安排: item.assigned, 责任人: item.owner, 说明: item.note
       })),
-      素材库: current.assets.map((asset) => ({ 名称: asset.name, 类型: asset.kind, 标签: (asset.tags || []).join('/'), 说明: asset.note })),
+      素材库: window.WB.library.context(current.assets, 'assets'),
+      知识库: window.WB.library.context(current.assets, 'knowledge'),
+      资料引用规则: window.WB.library.rule,
       /* 已收到的参与者信息：写《报名表 / 签到表 / 现场记录表》时直接引用真实数字 */
       参与者信息收集: window.WB.signup ? window.WB.signup.contextFor(current.signup) : '未启用'
     };

@@ -40,6 +40,7 @@ window.WB.views = window.WB.views || {};
         ${FILTERS.map((item) => `<button data-project-filter="${item.value}" class="${(current.ui.projectFilter || 'active') === item.value ? 'is-active' : ''}">${escapeHtml(item.label)}</button>`).join('')}
       </div>
       <div class="panel-actions">
+        ${window.WB.sync?.controls() || ''}
         <button class="button button-primary" data-project-new ${canWrite ? '' : 'disabled'} title="${canWrite ? '' : '当前身份为只读访客或活动成员，只有活动组织者可以新建项目'}">＋ 新建项目</button>
         <button class="button button-ghost" data-project-import>导入项目包</button>
         <button class="button button-ghost" data-project-export ${current.activeId ? '' : 'disabled'}>导出当前项目包</button>

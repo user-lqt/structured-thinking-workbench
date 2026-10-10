@@ -62,6 +62,7 @@ window.WB = window.WB || {};
     if (el.id && el.id.startsWith('export')) return true;
     /* 显式写入标记优先：属性名里恰好含 phase / view 这类只读动词时用它兜底 */
     if (el.hasAttribute?.('data-write')) return false;
+    if (el.hasAttribute?.('data-library-tab') || el.hasAttribute?.('data-library-search') || el.hasAttribute?.('data-asset-filter') || el.hasAttribute?.('data-asset-download')) return true;
     /* 属性名或属性值命中只读动词都算「只看不改」，例如 data-data="export-bundle" */
     return el.getAttributeNames().some((attr) => {
       if (!attr.startsWith('data-')) return false;
@@ -188,7 +189,7 @@ window.WB = window.WB || {};
     const user = state.user;
     const chip = $('#userChip');
     if (chip) {
-      chip.textContent = user ? `${user.name} · ${U.roleLabel(user.role)}` : '未登录';
+      chip.textContent = user ? `${user.name} · ${U.roleLabel()}` : '未登录';
       chip.classList.toggle('is-viewer', Boolean(user) && !U.canOperate());
     }
     const select = $('#projectSwitch');
@@ -293,7 +294,7 @@ window.WB = window.WB || {};
   function renderAll() {
     const state = store.state;
     /* 门禁自动打勾：生成材料、登记资源、写完比选结论等数据一变，检查点就同步 */
-    if (window.WB.wbs.autoTick(state)) store.save();
+    if (U.canOperate() && window.WB.wbs.autoTick(state)) store.save();
     renderTopbar();
     renderIdentity();
     renderTabs();
@@ -570,6 +571,7 @@ window.WB = window.WB || {};
       if (!menu || menu.classList.contains('hidden')) return;
       const role = event.target.closest('[data-user-role]');
       if (role) {
+        if (window.WB.sync?.role) { toast('共享角色由邀请决定；本地切换不会提升共享权限'); return; }
         store.setUser({ name: store.state.user?.name || '未命名同学', role: role.dataset.userRole });
         renderAll();
         toast(`已切换为「${U.roleLabel(role.dataset.userRole)}」`);
@@ -607,7 +609,7 @@ window.WB = window.WB || {};
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         store.save();
-        toast('已保存到本机浏览器');
+        toast(window.WB.sync?.role ? '已保存本机草稿，正在同步共享项目' : '已保存到本机浏览器');
       }
     });
   }
@@ -629,6 +631,7 @@ window.WB = window.WB || {};
     for (const id of VIEWS) window.WB.views[id].mount?.();
     observeContent();
     renderAll();
+    await window.WB.sync?.init();
     if (!store.state.user) openLogin();
     else if (!store.state.project) openWizard();
     window.WB.ai.healthPromise = window.WB.ai.check();

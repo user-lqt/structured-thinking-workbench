@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <rect width="960" height="600" fill="#102336"/>
+  <circle cx="765" cy="220" r="165" fill="none" stroke="#35d6bd" stroke-width="2"/>
+  <circle cx="765" cy="220" r="110" fill="none" stroke="#35d6bd" stroke-width="18" opacity=".25"/>
+  <path d="M625 80L900 365M605 340L920 105" stroke="#35d6bd" stroke-width="2"/>
+  <g font-family="Microsoft YaHei, sans-serif">
+    <text x="70" y="85" font-size="22" letter-spacing="5" fill="#35d6bd">CAMPUS · IDEAS · DISCOVERY</text>
+    <text x="68" y="230" font-size="72" font-weight="700" fill="#ffffff">校园科技</text>
+    <text x="68" y="320" font-size="72" font-weight="700" fill="#ffffff">文化节</text>
+    <text x="72" y="388" font-size="25" fill="#c8d7e0">让创意走出纸面，让科技走进校园</text>
+    <rect x="70" y="445" width="590" height="58" rx="10" fill="#173d4b"/>
+    <text x="92" y="483" font-size="23" fill="#68edcc">互动展览　/　创意分享　/　科创体验</text>
+    <text x="72" y="557" font-size="18" fill="#9eb5c7">教学示意图 · 日期、地点与报名方式以项目确认为准</text>
+  </g>
+</svg>

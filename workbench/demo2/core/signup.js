@@ -133,6 +133,8 @@ window.WB = window.WB || {};
       keyField: keyIdOf(fields, options.keyField || preset.key),
       base: text(options.base),
       records: [],
+      archivedFields: [],
+      schemaVersions: {},
       applied: 0,
       updatedAt: ''
     };
@@ -155,9 +157,11 @@ window.WB = window.WB || {};
       at: Number(record.at) || Date.now(),
       source: ['scan', 'import', 'manual', 'link'].includes(record.source) ? record.source : 'manual',
       values: Object.fromEntries(Object.entries(record.values || {})
-        .filter(([key]) => known.has(key) || key.startsWith('x'))
         .map(([key, value]) => [key, text(value)])),
       checkinAt: Number(record.checkinAt) || 0,
+      checkoutAt: Number(record.checkoutAt) || 0,
+      role: record.role === 'staff' ? 'staff' : 'participant',
+      attendance: Array.isArray(record.attendance) ? record.attendance.filter((e) => ['checkin', 'checkout', 'reset'].includes(e.kind) && Number.isFinite(e.at) && e.at > 0).map((e) => ({ kind: e.kind, at: e.at, by: text(e.by) })) : [],
       ua: text(record.ua),
       note: text(record.note),
       schemaChanged: Boolean(record.schemaChanged)
@@ -171,6 +175,14 @@ window.WB = window.WB || {};
       keyField: known.has(text(raw.keyField)) ? text(raw.keyField) : '',
       base: text(raw.base),
       records,
+      archivedFields: Array.isArray(raw.archivedFields) ? raw.archivedFields.map(freshField) : [],
+      schemaVersions: raw.schemaVersions && typeof raw.schemaVersions === 'object' ? raw.schemaVersions : {},
+      linkCode: text(raw.linkCode),
+      staffCode: text(raw.staffCode),
+      linkFp: text(raw.linkFp),
+      linkSchema: text(raw.linkSchema),
+      linkEnabled: raw.linkEnabled,
+      serverCursor: Math.max(0, Number(raw.serverCursor) || 0),
       applied: Number.isFinite(Number(raw.applied)) ? Math.max(0, Number(raw.applied)) : 0,
       updatedAt: text(raw.updatedAt)
     };
@@ -180,7 +192,10 @@ window.WB = window.WB || {};
     const preset = PRESETS.find((item) => item.id === presetId);
     if (!preset) return signup;
     signup.preset = preset.id;
-    signup.fields = preset.fields.map(freshField);
+    rememberSchema(signup);
+    const old = [...signup.fields, ...(signup.archivedFields || [])];
+    signup.archivedFields = old;
+    signup.fields = preset.fields.map((field, index) => freshField({ ...field, id: old.find((f) => f.label === field.label)?.id }, index));
     signup.keyField = keyIdOf(signup.fields, preset.key);
     return signup;
   }
@@ -204,7 +219,10 @@ window.WB = window.WB || {};
 
   function removeField(signup, index) {
     if (index < 0 || index >= signup.fields.length) return false;
+    rememberSchema(signup);
     const [field] = signup.fields.splice(index, 1);
+    signup.archivedFields ||= [];
+    signup.archivedFields.push(field);
     if (signup.keyField === field.id) signup.keyField = '';
     return true;
   }
@@ -346,7 +364,7 @@ window.WB = window.WB || {};
   function fingerprint(signup) {
     const source = packSchema({ ...signup, title: '', note: '' }, 'plain');
     let hash = 5381;
-    const list = window.WB.qr ? window.WB.qr.utf8(source) : Array.from(source, (c) => c.charCodeAt(0));
+    const list = typeof TextEncoder === 'function' ? new TextEncoder().encode(source) : Array.from(unescape(encodeURIComponent(source)), (c) => c.charCodeAt(0));
     for (const byte of list) hash = ((hash * 33) ^ byte) >>> 0;
     return hash.toString(36).slice(-4).padStart(4, '0');
   }
@@ -436,19 +454,19 @@ window.WB = window.WB || {};
 
   /* ── 回执码 / 队列 ────────────────────── */
 
-  const escapeValue = (value) => text(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
-  const unescapeValue = (value) => text(value).replace(/\\\|/g, '|').replace(/\\\\/g, '\\');
+  const escapeValue = (value) => text(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+  const unescapeValue = (value) => text(value).replace(/\\([\\|nr])/g, (_, c) => c === 'n' ? '\n' : c === 'r' ? '\r' : c);
 
   function packReceipt(event) {
     /* 时间戳按秒存（base36），比毫秒省 2 个字符，也够精确到「同一秒内先后」 */
     const parts = [
       RECEIPT_VERSION,
-      event.kind === 'checkin' ? 'c' : 's',
+      ({ checkin: 'c', checkout: 'o', reset: 'r' })[event.kind] || 's',
       text(event.id) || uid('rec'),
       base36(Math.floor((event.at || Date.now()) / 1000)),
-      text(event.h || '')
+      text(event.h || '') + (event.role === 'staff' ? '~staff' : '')
     ];
-    if (event.kind !== 'checkin') parts.push(...(event.values || []).map(escapeValue));
+    if (!['checkin', 'checkout', 'reset'].includes(event.kind)) parts.push(...(event.values || []).map(escapeValue));
     return parts.join('|');
   }
 
@@ -459,13 +477,14 @@ window.WB = window.WB || {};
     if (!parts.length) return null;
     const version = parts[0];
     if (version !== RECEIPT_VERSION) return null;
-    const kind = parts[1] === 'c' ? 'checkin' : 'submit';
+    const kind = ({ s: 'submit', c: 'checkin', o: 'checkout', r: 'reset' })[parts[1]];
+    if (!kind || parts.length < 5 || !/^[0-9a-z]+$/i.test(parts[3])) return null;
     const id = text(parts[2]);
     if (!id) return null;
     const at = fromBase36(parts[3]) * 1000 || Date.now();
-    const h = text(parts[4]);
+    const [h, roleCode] = text(parts[4]).split('~');
     const values = kind === 'submit' ? parts.slice(5).map(unescapeValue) : [];
-    return { kind, id, at, h, values, source: 'scan' };
+    return { kind, id, at, h, values, role: roleCode === 'staff' ? 'staff' : 'participant', source: 'scan' };
   }
 
   /* 按 \| 拆开，但保留被转义的竖线 */
@@ -474,7 +493,7 @@ window.WB = window.WB || {};
     let current = '';
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
-      if (char === '\\' && line[i + 1] === '|') { current += '\\|'; i += 1; continue; }
+      if (char === '\\' && i + 1 < line.length) { current += char + line[i + 1]; i += 1; continue; }
       if (char === '|') { out.push(current); current = ''; continue; }
       current += char;
     }
@@ -520,22 +539,29 @@ window.WB = window.WB || {};
 
   /* 把一批事件（回执码字符串或事件对象）折进 records；按 id 幂等，重复导入不会翻倍 */
   function mergeEvents(signup, events, options = {}) {
-    const result = { added: 0, updated: 0, checkin: 0, ignored: 0, stale: 0 };
+    const result = { added: 0, updated: 0, checkin: 0, checkout: 0, ignored: 0, stale: 0 };
     const mine = fingerprint(signup);
     const byId = new Map(signup.records.map((record) => [record.id, record]));
-    for (const raw of events || []) {
+    const parsed = (events || []).map((raw) => typeof raw === 'string' ? parseReceipt(raw) : (raw && typeof raw === 'object' ? normaliseEvent(raw) : null));
+    for (const raw of parsed.filter((e) => !e || e.kind === 'submit').concat(parsed.filter((e) => e && e.kind !== 'submit').sort((a, b) => a.at - b.at))) {
       const event = typeof raw === 'string' ? parseReceipt(raw) : (raw && typeof raw === 'object' ? normaliseEvent(raw) : null);
       if (!event) { result.ignored += 1; continue; }
-      if (event.kind === 'checkin') {
+      if (event.kind !== 'submit') {
         const record = byId.get(event.id);
         if (!record) { result.ignored += 1; continue; }
-        if (!record.checkinAt || event.at < record.checkinAt) { record.checkinAt = event.at; result.checkin += 1; }
+        if (attend(signup, event.id, event.kind, event.at, event.by || '本人扫码')) {
+          if (event.kind === 'checkout') result.checkout += 1;
+          else result.checkin += 1;
+        }
         continue;
       }
-      const values = valuesToFields(signup, event.values);
+      const schemaFields = signup.schemaVersions?.[event.h];
+      const values = schemaFields ? Object.fromEntries(event.values.map((value, index) => [schemaFields[index]?.id || `x${index + 1}`, text(value)])) : valuesToFields(signup, event.values);
       const existing = byId.get(event.id);
       const stale = Boolean(event.h) && event.h !== mine;
       if (existing) {
+        if (event.at < existing.at) { result.ignored += 1; continue; }
+        if (event.at === existing.at && Object.entries(values).every(([key, value]) => existing.values[key] === value) && existing.schemaChanged === stale) { result.ignored += 1; continue; }
         existing.values = { ...existing.values, ...values };
         existing.at = event.at;
         existing.schemaChanged = stale;
@@ -549,6 +575,9 @@ window.WB = window.WB || {};
         source: options.source || event.source || 'scan',
         values,
         checkinAt: 0,
+        checkoutAt: 0,
+        role: event.role === 'staff' ? 'staff' : 'participant',
+        attendance: [],
         ua: text(event.ua),
         note: '',
         schemaChanged: stale
@@ -559,13 +588,13 @@ window.WB = window.WB || {};
       if (stale) result.stale += 1;
     }
     signup.records.sort((a, b) => a.at - b.at);
-    signup.updatedAt = new Date().toISOString();
+    if (result.added || result.updated || result.checkin || result.checkout) signup.updatedAt = new Date().toISOString();
     return result;
   }
 
   function normaliseEvent(raw) {
-    if (raw.kind === 'checkin') {
-      return { kind: 'checkin', id: text(raw.id), at: Number(raw.at) || Date.now(), h: text(raw.h) };
+    if (['checkin', 'checkout', 'reset'].includes(raw.kind)) {
+      return { kind: raw.kind, id: text(raw.id), at: Number(raw.at) || Date.now(), h: text(raw.h), by: text(raw.by) };
     }
     return {
       kind: 'submit',
@@ -574,7 +603,8 @@ window.WB = window.WB || {};
       h: text(raw.h),
       values: Array.isArray(raw.values) ? raw.values.map((value) => text(value)) : [],
       ua: text(raw.ua),
-      source: text(raw.source)
+      source: text(raw.source),
+      role: raw.role === 'staff' ? 'staff' : 'participant'
     };
   }
 
@@ -597,6 +627,9 @@ window.WB = window.WB || {};
       source,
       values: valuesToFields(signup, values),
       checkinAt: 0,
+      checkoutAt: 0,
+      role: 'participant',
+      attendance: [],
       ua: '',
       note: '',
       schemaChanged: false
@@ -621,6 +654,47 @@ window.WB = window.WB || {};
     return true;
   }
 
+  function rememberSchema(signup) {
+    signup.schemaVersions ||= {};
+    signup.schemaVersions[fingerprint(signup)] = signup.fields.map((field) => ({ id: field.id, label: field.label }));
+  }
+
+  function attendanceOf(record, now = Date.now()) {
+    const events = record.attendance?.length ? record.attendance : (record.checkinAt ? [
+      { kind: 'checkin', at: record.checkinAt }, ...(record.checkoutAt ? [{ kind: 'checkout', at: record.checkoutAt }] : [])
+    ] : []);
+    let open = 0, first = 0, last = 0, duration = 0, sessions = 0;
+    for (const e of events.slice().sort((a, b) => a.at - b.at)) {
+      if (e.kind === 'reset') { open = first = last = duration = sessions = 0; }
+      else if (e.kind === 'checkin' && !open) { open = e.at; first ||= e.at; }
+      else if (e.kind === 'checkout' && open && e.at >= open) { duration += e.at - open; last = e.at; open = 0; sessions++; }
+    }
+    return { checkinAt: first, checkoutAt: last, present: Boolean(open), duration, liveDuration: duration + (open ? Math.max(0, now - open) : 0), sessions };
+  }
+
+  function attend(signup, id, kind, at = Date.now(), by = '管理者') {
+    const record = signup.records.find((item) => item.id === id);
+    if (!record || !['checkin', 'checkout', 'reset'].includes(kind)) return false;
+    at = Math.floor(Number(at) / 1000) * 1000;
+    if (!Number.isFinite(at) || at <= 0) return false;
+    record.attendance ||= [];
+    if (!record.attendance.length && record.checkinAt) {
+      record.attendance.push({ kind: 'checkin', at: record.checkinAt, by: '历史记录' });
+      if (record.checkoutAt) record.attendance.push({ kind: 'checkout', at: record.checkoutAt, by: '历史记录' });
+    }
+    if (record.attendance.some((e) => e.kind === kind && e.at === at)) return false;
+    const tally = attendanceOf(record);
+    if (kind === 'checkout' && (!tally.present || at < record.attendance.at(-1)?.at)) return false;
+    if (kind === 'checkin' && tally.present) return false;
+    record.attendance.push({ kind, at, by: text(by) });
+    const next = attendanceOf(record);
+    record.checkinAt = next.checkinAt;
+    record.checkoutAt = next.checkoutAt;
+    return true;
+  }
+
+  const durationText = (ms) => `${Math.floor(ms / 3600000)} 小时 ${Math.floor(ms / 60000) % 60} 分钟`;
+
   /* ── 统计与导出 ───────────────────────── */
 
   function stats(signup) {
@@ -644,6 +718,11 @@ window.WB = window.WB || {};
     return {
       total: records.length,
       checkins: records.filter((record) => record.checkinAt).length,
+      checkouts: records.filter((record) => attendanceOf(record).checkoutAt && !attendanceOf(record).present).length,
+      present: records.filter((record) => attendanceOf(record).present).length,
+      staff: records.filter((record) => record.role === 'staff').length,
+      participants: records.filter((record) => record.role !== 'staff').length,
+      duration: records.reduce((sum, record) => sum + attendanceOf(record).duration, 0),
       dupeValues: dupes.length,
       dupeRecords: dupes.reduce((sum, count) => sum + count, 0),
       keyLabel: key ? key.label : '',
@@ -669,20 +748,28 @@ window.WB = window.WB || {};
   const SOURCE_LABEL = { scan: '扫码填写', import: '回执导入', manual: '现场补登', link: '填写页' };
 
   function rowsOf(signup) {
-    const header = ['序号', '提交时间', '来源', ...signup.fields.map((field) => field.label), '签到时间', '备注'];
+    const header = ['序号', '提交时间', '来源', ...signup.fields.map((field) => field.label), '签到时间', '人员身份', '签退时间', '累计在场分钟（已签退）', '当前状态', '考勤流水', '记录号', '考勤数据JSON', '备注'];
     const rows = signup.records.map((record, index) => [
       String(index + 1),
       new Date(record.at).toLocaleString('zh-CN', { hour12: false }),
       SOURCE_LABEL[record.source] || record.source,
       ...signup.fields.map((field) => text(record.values[field.id])),
       record.checkinAt ? new Date(record.checkinAt).toLocaleString('zh-CN', { hour12: false }) : '',
+      record.role === 'staff' ? '工作人员' : '参与者',
+      record.checkoutAt ? new Date(record.checkoutAt).toLocaleString('zh-CN', { hour12: false }) : '',
+      String(Math.floor(attendanceOf(record).duration / 60000)),
+      attendanceOf(record).present ? '在场' : record.checkinAt ? '已离场' : '未签到',
+      (record.attendance || []).map((e) => `${e.kind === 'checkin' ? '签到' : e.kind === 'checkout' ? '签退' : '重置'} ${new Date(e.at).toLocaleString('zh-CN', { hour12: false })} ${e.by || ''}`).join('；'),
+      record.id,
+      JSON.stringify(record.attendance?.length ? record.attendance : record.checkinAt ? [{ kind: 'checkin', at: record.checkinAt }, ...(record.checkoutAt ? [{ kind: 'checkout', at: record.checkoutAt }] : [])] : []),
       record.schemaChanged ? '表单结构已变，请核对' : text(record.note)
     ]);
     return { header, rows };
   }
 
   const csvCell = (value) => {
-    const str = String(value == null ? '' : value);
+    const raw = String(value == null ? '' : value);
+    const str = /^[=+@\-\t]/.test(raw) ? `'${raw}` : raw;
     return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   };
 
@@ -717,8 +804,8 @@ window.WB = window.WB || {};
   }
 
   /* 从粘贴的多行文本里取出回执码：每行一条，忽略空行与说明文字 */
-  function parseLines(text) {
-    return String(text == null ? '' : text)
+  function parseLines(source) {
+    return String(source == null ? '' : source)
       .split(/[\r\n;]+/)
       .map((line) => text(line))
       .filter(Boolean);
@@ -745,7 +832,22 @@ window.WB = window.WB || {};
         return at >= 0 ? text(row[at]) : '';
       });
       if (!values.some(Boolean)) continue;
-      addRecord(signup, values, 'import');
+      const originalId = hasHeader ? row[header.indexOf('记录号')] : '';
+      if (originalId && signup.records.some((record) => record.id === originalId)) continue;
+      const record = addRecord(signup, values, 'import');
+      if (hasHeader) {
+        const cell = (label) => row[header.indexOf(label)] || '';
+        record.role = cell('人员身份') === '工作人员' ? 'staff' : 'participant';
+        const originalId = cell('记录号');
+        if (originalId && !signup.records.some((item) => item !== record && item.id === originalId)) record.id = originalId;
+        const submitted = Date.parse(cell('提交时间')); if (Number.isFinite(submitted)) record.at = submitted;
+        try { const events = JSON.parse(cell('考勤数据JSON')); if (Array.isArray(events)) for (const event of events.sort((a, b) => a.at - b.at)) attend(signup, record.id, event.kind, event.at, event.by); } catch { /* external CSV may not have event JSON */ }
+        if (!record.attendance.length) {
+          const checkin = Date.parse(cell('签到时间')), checkout = Date.parse(cell('签退时间'));
+          if (Number.isFinite(checkin)) attend(signup, record.id, 'checkin', checkin, 'CSV导入');
+          if (Number.isFinite(checkout)) attend(signup, record.id, 'checkout', checkout, 'CSV导入');
+        }
+      }
       added += 1;
     }
     return { added, rows: body.length };
@@ -829,6 +931,10 @@ window.WB = window.WB || {};
     addRecord,
     removeRecord,
     toggleCheckin,
+    rememberSchema,
+    attend,
+    attendanceOf,
+    durationText,
     valuesToFields,
     fieldsToValues,
     stats,

@@ -80,7 +80,7 @@ globalThis.window.clearInterval = noop;
 
 const MODULES = [
   'schemas.js', 'materials.js',
-  'core/util.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
+  'core/util.js', 'core/library.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/sync.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/agenda.js', 'views/tasks.js', 'views/decision.js',
   'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/workflow.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
@@ -104,6 +104,7 @@ for (const file of MODULES) {
     check(`加载 ${file}`, false, String(error && error.message));
   }
 }
+await new Promise((resolve) => setImmediate(resolve));
 check('window.WB 已建立', typeof window.WB === 'object');
 check('window.SKILLS 已建立', typeof window.SKILLS === 'object');
 
@@ -1864,7 +1865,7 @@ check('折入一条提交并按字段 id 落库',
   sgMerged.added === 1 && sgMin.records.length === 1 && sgMin.records[0].values[sgMin.fields[0].id] === '张三');
 check('重复导入同一条不会翻倍', (() => {
   const again = SG.mergeEvents(sgMin, [sgReceipt]);
-  return again.added === 0 && again.updated === 1 && sgMin.records.length === 1;
+  return again.added === 0 && again.updated === 0 && again.ignored === 1 && sgMin.records.length === 1;
 })());
 check('签到事件落到对应记录', SG.mergeEvents(sgMin, [{ kind: 'checkin', id: 'r1a2b3', at: 1760003600000 }]).checkin === 1
   && sgMin.records[0].checkinAt === 1760003600000);
@@ -2118,15 +2119,16 @@ check('手机号格式校验生效', page.getElementById('perr-3').textContent.i
 pageFields.splice(0, pageFields.length, '张三', '20230101', '一班', '13800001111', '帮我留个前排');
 page.getElementById('signupForm').emit('submit');
 const pageQueue = SG.readQueue('proj-page');
-check('提交写入队列并进入成功页', pageQueue.length === 1 && page.app.innerHTML.includes('提交成功'));
+check('提交写入队列并进入成功页', pageQueue.length === 1 && page.app.innerHTML.includes('本机已保存'));
 check('成功页展示回执码与二维码', page.app.innerHTML.includes('R1|') && page.app.innerHTML.includes('<svg'));
 check('回执码内容与填写值一致', SG.parseReceipt(pageQueue[0])?.values[0] === '张三' && SG.parseReceipt(pageQueue[0])?.values[4] === '帮我留个前排');
 check('回执码带当前表单指纹', SG.parseReceipt(pageQueue[0])?.h === SG.fingerprint(SG.fresh({ preset: 'minimal', enabled: true })));
 check('签到按钮已接线', page.getElementById('checkin').hasListener('click'));
+await new Promise((resolve) => setImmediate(resolve));
 page.getElementById('checkin').emit('click');
 check('签到追加一条签到事件', SG.readQueue('proj-page').length === 2
   && SG.parseReceipt(SG.readQueue('proj-page')[1])?.kind === 'checkin'
-  && page.app.innerHTML.includes('已提交并签到'));
+  && page.app.innerHTML.includes('签到时间：'));
 const pageBoard = SG.fresh({ preset: 'minimal', enabled: true });
 const pageSync = SG.syncFromQueue(pageBoard, 'proj-page', pageStorage);
 check('工作台侧折叠出 1 条记录 + 1 次签到',
@@ -2134,7 +2136,7 @@ check('工作台侧折叠出 1 条记录 + 1 次签到',
   JSON.stringify(pageSync));
 check('折叠后的来源标记为扫码填写', pageBoard.records[0].source === 'scan' && !pageBoard.records[0].schemaChanged);
 page = runPage(`#${pageLink.url.split('#')[1]}`);
-check('重新打开链接显示「已提交」并可修改', page.app.innerHTML.includes('已提交') && page.getElementById('editMine').hasListener('click'));
+check('重新打开链接显示「已提交」并可修改', page.app.innerHTML.includes('当前在场') && page.getElementById('editMine').hasListener('click'));
 page.getElementById('editMine').emit('click');
 check('点「修改我的信息」回到带原值的表单', page.app.innerHTML.includes('id="signupForm"'));
 pageFields.splice(0, pageFields.length, '张三', '20230101', '一班', '13800002222', '换了号码');
@@ -2154,7 +2156,7 @@ check('「再填一位」落成第 2 条独立记录',
   pageBoard3.records.length === 2
   && pageBoard3.records.map((record) => record.values[pageBoard3.fields[0].id]).join('/') === '张三/李四',
   pageBoard3.records.map((record) => record.values[pageBoard3.fields[0].id]).join('/'));
-page = runPage('#p=proj-page2');
+page = runPage('');
 check('链接里没有表单定义时退回通用表单并说明原因',
   page.app.innerHTML.includes('通用最小表单') && page.app.innerHTML.includes('data-field="0"'));
 page.getElementById('formCode').value = SG.packSchema(SG.fresh({ preset: 'checkin' }));
@@ -2178,7 +2180,7 @@ check('没带项目号的链接，提交仍落回项目队列（不发到 defaul
   SG.readQueue('proj-solo', pageStorage).length === 1 && SG.readQueue('default', pageStorage).length === 0,
   `proj-solo=${SG.readQueue('proj-solo', pageStorage).length} default=${SG.readQueue('default', pageStorage).length}`);
 check('同源提交时成功页仍说「组织者会实时看到」',
-  page.app.innerHTML.includes('组织者会实时看到你的信息'));
+  page.app.innerHTML.includes('正在发送'));
 pageStorage.removeItem(SG.formKey('proj-solo'));
 /* ── 10f. 公网 / 局域网开放的安全边界（server.mjs 契约） ──
    默认只听回环；DEMO2_HOST=0.0.0.0 或走 cloudflared 隧道时，非本机请求只能读填写页
@@ -2208,7 +2210,7 @@ check('拦截发生在 /api 与静态分发之前', (() => {
     && guard < serverSrc.indexOf('const file = path.resolve(here, requested);');
 })());
 check('提交接口有体积上限、限流与总量上限，且只认 R1| 开头的回执码',
-  serverSrc.includes('readBuffer(req, JOIN_BODY_LIMIT)') && serverSrc.includes('submitAllowed(clientIp)')
+  serverSrc.includes('readBuffer(req, JOIN_BODY_LIMIT)') && serverSrc.includes('submitAllowed(`${clientIp}:${event.id}`)')
   && serverSrc.includes('JOIN_MAX_RECORDS') && serverSrc.includes("receipt.startsWith('R1|')")
   && serverSrc.includes('const known = lines.includes(receipt);'));
 check('启动日志打印隧道命令与网卡名',
@@ -4023,6 +4025,105 @@ check('连线是连续的灰线：底色走 --flow-line，资料源那条不打�
   edgeBaseRule);
 check('箭头跟线一个色（marker 里的 path 不写 fill 默认是纯黑，一串黑点特别扎眼）',
   /#flowArrow path \{ fill: var\(--flow-line\); \}/.test(flowStyleSrc));
+
+/* Regression checks for shared attendance and card dependencies. */
+{
+  const form = SG.fresh({ enabled: true, preset: 'minimal' });
+  const record = SG.addRecord(form, ['测试', '001', '一班', '13800000000', '备注']);
+  record.role = 'staff';
+  const t = 1760000000000;
+  check('未签到不能签退', !SG.attend(form, record.id, 'checkout', t));
+  SG.attend(form, record.id, 'checkin', t, '负责人');
+  check('重复签到不增加流水', !SG.attend(form, record.id, 'checkin', t + 1000) && record.attendance.length === 1);
+  check('早于签到的签退被拒', !SG.attend(form, record.id, 'checkout', t - 1000));
+  SG.attend(form, record.id, 'checkout', t + 3600000, '负责人');
+  SG.attend(form, record.id, 'checkin', t + 7200000, '本人');
+  SG.attend(form, record.id, 'checkout', t + 14400000, '本人');
+  check('多次进出累加在场时长，不计离场空档', SG.attendanceOf(record).duration === 10800000 && SG.attendanceOf(record).sessions === 2);
+  check('签退后不再在场', !SG.attendanceOf(record).present && SG.stats(form).checkouts === 1);
+  check('工作人员和参与者分别统计', SG.stats(form).staff === 1 && SG.stats(form).participants === 0);
+  const restored = SG.normalise(JSON.parse(JSON.stringify({ ...form, linkCode: 'test', staffCode: 'staf', serverCursor: 219, linkFp: 'abcd' })));
+  check('重新打开项目保留短码、独立工作人员码和同步游标', restored.linkCode === 'test' && restored.staffCode === 'staf' && restored.serverCursor === 219);
+  check('重新打开项目保留完整考勤流水', restored.records[0].attendance.length === 4 && SG.attendanceOf(restored.records[0]).duration === 10800000);
+  const csvForm = SG.fresh({ fields: form.fields });
+  SG.parseCsv(csvForm, SG.toCsv(form));
+  check('CSV往返保留身份、记录号、流水和累计时长', csvForm.records[0].role === 'staff' && csvForm.records[0].id === record.id && SG.attendanceOf(csvForm.records[0]).duration === 10800000);
+  SG.parseCsv(csvForm, SG.toCsv(form));
+  check('重复导入带记录号的CSV不重复登记', csvForm.records.length === 1);
+  check('CSV防止把参与者输入当作公式', SG.toCsv({ ...form, records: [{ ...record, values: { ...record.values, [form.fields[0].id]: '=1+1' } }] }).includes("'=1+1"));
+  const mixed = '带竖线|、反斜线\\、换行\n第二行\r末行';
+  const receipt = SG.packReceipt({ kind: 'submit', id: 'escape-case', at: t, h: SG.fingerprint(form), values: [mixed] });
+  check('回执中的换行、反斜线和竖线逐字还原且落盘仍是一行', SG.parseReceipt(receipt).values[0] === mixed && !receipt.includes('\n') && !receipt.includes('\r'));
+  check('未知事件类型被拒，签退事件可往返', SG.parseReceipt('R1|bad|id|123|h') === null && SG.parseReceipt(SG.packReceipt({ kind: 'checkout', id: record.id, at: t })).kind === 'checkout');
+  check('回执文本粘贴解析不再被同名参数遮蔽', SG.parseLines('  R1|s|x|123|h\n\n R1|c|x|124|h ').length === 2);
+  const oldFingerprint = SG.fingerprint(form), ids = form.fields.map((f) => f.id);
+  SG.rememberSchema(form);
+  SG.moveField(form, 0, 1);
+  SG.mergeEvents(form, [{ kind: 'submit', id: 'old-schema', at: t, h: oldFingerprint, values: ['原姓名', '原学号'] }]);
+  const oldRecord = form.records.find((r) => r.id === 'old-schema');
+  check('调整字段顺序后，旧回执按原字段映射而非错列', oldRecord.values[ids[0]] === '原姓名' && oldRecord.values[ids[1]] === '原学号');
+  SG.applyPreset(form, 'checkin');
+  check('切换预设保留同名字段ID和已收记录', form.fields.find((f) => f.label === '姓名').id === ids[0] && form.records.find((item) => item.id === record.id).values[ids[0]] === '测试');
+  const withoutQr = window.WB.qr; window.WB.qr = null;
+  const serverFingerprint = SG.fingerprint(form); window.WB.qr = withoutQr;
+  check('中文表单在服务端和浏览器使用同一UTF8指纹', serverFingerprint === SG.fingerprint(form));
+  const saved = JSON.parse(JSON.stringify(store.state)), fetchBackup = globalThis.fetch, aiBackup = window.WB.ai;
+  try {
+    store.state.workflow = { cards: [store.normaliseCard({ id: 'child', title: '下游', from: ['parent'] }), store.normaliseCard({ id: 'parent', title: '上游' })] };
+    store.setUser({ name: '测试组织者', role: 'organizer' });
+    check('运行顺序不受列表倒序影响，上游始终在先', WF.executionOrder().map((c) => c.id).join('/') === 'parent/child');
+    const calls = [];
+    window.WB.ai = { ...aiBackup, ready: true };
+    globalThis.fetch = async (_, options) => { const body = JSON.parse(options.body); calls.push(body.input.任务); return { ok: true, json: async () => ({ data: { title: body.input.任务, text: '已完成正文' } }) }; };
+    await WF.runAll();
+    check('运行全部确实按依赖调用，并产出两份正文', calls.join('/') === '上游/下游' && store.state.workflow.cards.every((c) => c.output?.text));
+    store.state.workflow.cards.forEach((c) => { c.output = null; c.status = 'draft'; }); calls.length = 0;
+    globalThis.fetch = async () => { calls.push('失败'); return { ok: false, json: async () => ({ error: '模拟上游失败' }) }; };
+    await WF.runAll();
+    check('上游失败时跳过下游，避免引用旧稿继续生成', calls.length === 1 && !store.state.workflow.cards[0].output);
+    store.state.workflow.cards[1].from = ['child'];
+    let cycle = false; try { WF.executionOrder(); } catch { cycle = true; }
+    check('导入含循环引用的项目会阻止运行', cycle);
+    store.state.workflow.cards = [store.normaliseCard({ id: 'material-card', title: '培训简报', skill: 'training-brief', output: { text: '## 岗位\n提前到岗。' } })];
+    check('卡片结果可写入过程材料', WF.writeMaterial('material-card') && store.state.materials.training.sections[0].heading === '岗位');
+    check('卡片写入使相应产出成为主线材料', store.state.project.outputs.training === true);
+  } finally { store.state = saved; globalThis.fetch = fetchBackup; window.WB.ai = aiBackup; }
+}
+
+/* 资料引用必须经过选择、核验，正文与来源应随项目包保留。 */
+{
+  const L = window.WB.library;
+  const items = [
+    { id: 'kb-ok', collection: 'knowledge', name: '已核验规范', content: '真实规范正文', source: '正式文件', status: 'verified', useForAi: true },
+    { id: 'kb-pending', collection: 'knowledge', name: '未核验规范', content: '不能引用', status: 'pending', useForAi: true },
+    { id: 'kb-off', collection: 'knowledge', name: '未选择规范', content: '不能引用', status: 'verified', useForAi: false },
+    { id: 'kb-demo', collection: 'knowledge', name: '模拟流程', content: '教学内容', status: 'example', useForAi: true },
+    { id: 'asset-text', kind: 'text', name: '文案', content: '完整文案正文', source: '原创' },
+    { id: 'asset-off', kind: 'text', content: '不能引用', useForAi: false }
+  ];
+  check('资料库：老素材仍归入素材库', L.list(items, 'assets').length === 2);
+  check('资料库：待核验和未选择知识不送给 AI', L.context(items, 'knowledge').资料.length === 2 && !JSON.stringify(L.context(items, 'knowledge')).includes('不能引用'));
+  check('资料库：素材引用包含实际正文与来源', L.context(items, 'assets').资料[0].正文 === '完整文案正文' && L.context(items, 'assets').资料[0].来源 === '原创');
+  check('资料库：示例标签不丢失', L.context(items, 'knowledge').资料.some((item) => item.状态 === '教学示例'));
+  check('资料库：链接仅接受可打开的资料地址', !L.safeUrl('javascript:alert(1)') && !L.safeUrl('//evil.test') && Boolean(L.safeUrl('./samples/library/活动宣传示例.svg')));
+  const budget = L.context(Array.from({ length: 40 }, (_, i) => ({ ...items[0], id: String(i), content: '字'.repeat(8000) })), 'knowledge');
+  check('资料库：上下文有容量上限并声明截断', budget.资料.reduce((sum, item) => sum + item.正文.length, 0) <= 16000 && budget.因容量限制省略 > 0 && budget.资料.every((item) => item.正文已截断));
+  check('资料库：知识导出包含正文与核验状态', L.toMarkdown(items, 'knowledge').includes('真实规范正文') && L.toMarkdown(items, 'knowledge').includes('已人工核验'));
+  const saved = store.state;
+  try {
+    store.setUser({ name: '资料测试', role: 'organizer' });
+    store.state.assets = items;
+    check('资料库：修改已核验正文撤回引用', window.WB.views.assets.setField(items[0], 'content', '更新后的规范') && items[0].status === 'pending' && items[0].useForAi === false);
+    const raw = { ...store.exportBundle(), assets: items, workflow: { cards: [{ id: 'kb-card', refs: ['knowledge', 'assets'], from: [] }] } };
+    store.importBundle(raw);
+    check('资料库：项目包往返保留正文与工作流知识引用', store.state.assets[0].content === '更新后的规范' && store.state.workflow.cards[0].refs.includes('knowledge'));
+    const before = store.state.assets.length;
+    store.setUser({ name: '访客', role: 'viewer' });
+    check('资料库：访客不能通过 API 新建资料', window.WB.views.assets.addAsset({ name: '非法修改', kind: 'text' }) === false && store.state.assets.length === before);
+    check('资料库：访客不能通过 API 修改正文', window.WB.views.assets.setField(store.state.assets[0], 'content', '非法修改') === false && store.state.assets[0].content === '更新后的规范');
+  } finally { store.state = saved; }
+}
+
 console.log(`\n结构化活动工作台 · 离线自测`);
 console.log(`模块 ${MODULES.length} 个 · 断言 ${checks} 项 · 失败 ${failures.length} 项`);
 if (failures.length) {

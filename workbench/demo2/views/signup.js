@@ -15,10 +15,13 @@ window.WB.views = window.WB.views || {};
   let previewOpen = false;
   let codeOpen = false;
   let pollTimer = 0;
+  let roleFilter = 'all', statusFilter = 'all', search = '', serverBusy = false, registering = false;
+  let syncMessage = '等待连接服务';
 
   const save = () => {
     const current = signup();
     current.updatedAt = new Date().toISOString();
+    S.rememberSchema(current);
     store().save();
   };
 
@@ -148,7 +151,7 @@ window.WB.views = window.WB.views || {};
       <div class="seg-switch signup-presets">
         ${S.PRESETS.map((item) => `<button class="${current.preset === item.id ? 'is-active' : ''}" data-signup-preset="${item.id}" data-write>${escapeHtml(item.label)}</button>`).join('')}
       </div>
-      <p class="signup-hint">${preset ? escapeHtml(preset.hint) : '当前是自定义字段。选一个预设会覆盖下面的字段表（已收记录不受影响）。'}</p>
+      <p class="signup-hint">${preset ? escapeHtml(preset.hint) : '当前是自定义字段。更换预设会调整字段；同名字段复用原标识，历史值继续保留。'}</p>
       <div class="signup-table-wrap">
         <table class="signup-table">
           <thead><tr><th class="col-idx">#</th><th>字段名</th><th>类型</th><th class="col-req">必填</th><th>选项（用 / 分隔）</th><th class="col-key">去重</th><th class="col-act"></th></tr></thead>
@@ -215,7 +218,7 @@ window.WB.views = window.WB.views || {};
           <label class="signup-label"><span>访问地址（手机扫码要用它）</span>
             <input data-signup-base value="${escapeHtml(current.base)}" placeholder="${escapeHtml(S.pageUrl('').replace(/\/signup\.html$/, ''))}" data-write />
           </label>
-          <p class="signup-hint">留空就按<b>当前网址</b>生成（本地打开、静态托管、换端口都不用改；示例项目就是留空的）。要让手机扫码填写，两条路：<br /><b>公网（推荐 · cloudflared 隧道）</b>：另开一个窗口跑 <code>cloudflared tunnel --url http://127.0.0.1:4175</code>，把打印出来的 <code>https://xxx.trycloudflare.com</code> 填到这里，再点「重新生成二维码」。隧道只放行填写页 / 取表单 / 提交三条路，工作台与 AI 接口仍只允许本机；地址是公开的，演示完 Ctrl+C 关掉即可。<br /><b>局域网 / 热点</b>：<code>$env:DEMO2_HOST='0.0.0.0'; node workbench/demo2/server.mjs</code>，把启动日志里那条（形如 <code>http://192.168.1.5:4175</code>）填到这里；首次要在防火墙放行该端口（命令见 README「扫码填写怎么开」）。<br />两条路下<b>手机提交都会直接进表</b>（2–3 秒轮询一次）；服务不在（纯静态托管）时自动退回「回执码 / CSV」方式，链接改为自带表单定义。</p>
+          <p class="signup-hint">留空就按<b>当前网址</b>生成（本地打开、静态托管、换端口都不用改；示例项目就是留空的）。要让手机扫码填写，两条路：<br /><b>公网（推荐 · cloudflared 隧道）</b>：另开一个窗口跑 <code>cloudflared tunnel --url http://127.0.0.1:4175</code>，把打印出来的 <code>https://xxx.trycloudflare.com</code> 填到这里，再点「重新生成二维码」。匿名可填写报名，共享项目与 AI 接口按邀请权限开放；地址是公开的，演示完 Ctrl+C 关掉即可。<br /><b>局域网 / 热点</b>：<code>$env:DEMO2_HOST='0.0.0.0'; node workbench/demo2/server.mjs</code>，把启动日志里那条（形如 <code>http://192.168.1.5:4175</code>）填到这里；首次要在防火墙放行该端口（命令见 README「扫码填写怎么开」）。<br />两条路下<b>手机提交都会直接进表</b>（2–3 秒轮询一次）；服务不在（纯静态托管）时自动退回「回执码 / CSV」方式，链接改为自带表单定义。</p>
           <details ${codeOpen ? 'open' : ''} data-signup-code-box>
             <summary>表单码（跨设备用：粘贴一次即可）</summary>
             <p class="signup-hint">手机不是本机时，链接里会带上表单定义；万一二维码装不下，把下面这段发给参与者，在填写页「组织者：粘贴表单码」里粘一次即可。</p>
@@ -224,6 +227,7 @@ window.WB.views = window.WB.views || {};
           </details>
         </div>
       </div>
+      ${current.staffCode ? `<div class="signup-staff-entry"><h4>工作人员 / 现场管理者考勤入口</h4><p class="signup-hint">请只发给工作人员；参与者使用上方二维码。工作台登录身份与现场考勤身份分别管理。</p><div class="signup-qr">${S.qrSvg(S.linkFor(current, current.staffCode, current.base, { short: true }).url, { scale: 4 }) || ''}</div><input class="signup-code" readonly aria-label="工作人员签到链接" value="${escapeHtml(S.linkFor(current, current.staffCode, current.base, { short: true }).url)}" /></div>` : ''}
       ${previewOpen ? `<div class="signup-preview-wrap"><iframe class="signup-preview" src="${escapeHtml(link.url)}" title="填写页预览"></iframe><p class="signup-hint">这是填写页本身（不是模拟）：在这里提交，下面的汇总会立刻更新。</p></div>` : ''}
     </div>`;
   }
@@ -235,13 +239,16 @@ window.WB.views = window.WB.views || {};
     const queued = S.readQueue(projectId()).length;
     const pending = Math.max(0, queued - (current.applied || 0));
     return `<div class="card">
-      <div class="card-title"><h3>③ 实时汇总</h3><small>${pending ? `有 ${pending} 条新提交待同步` : '已同步到最新'}</small></div>
+      <div class="card-title"><h3>③ 实时汇总</h3><small>${escapeHtml(syncMessage)}${pending ? ` · 本机待同步 ${pending} 条` : ''}</small></div>
       <div class="stats-row">
         <div class="stat stat-accent"><span class="stat-label">已收到</span><span class="stat-value">${tally.total}<small>份</small></span></div>
         <div class="stat"><span class="stat-label">现场签到</span><span class="stat-value">${tally.checkins}<small>人</small></span></div>
+        <div class="stat"><span class="stat-label">当前在场 / 已签退</span><span class="stat-value">${tally.present} / ${tally.checkouts}</span></div>
+        <div class="stat"><span class="stat-label">工作人员 / 参与者</span><span class="stat-value">${tally.staff} / ${tally.participants}</span></div>
         <div class="stat ${tally.dupeRecords ? 'stat-warn' : 'stat-muted'}"><span class="stat-label">重复${tally.keyLabel ? `（按${escapeHtml(tally.keyLabel)}）` : ''}</span><span class="stat-value">${tally.dupeRecords}<small>条</small></span></div>
         <div class="stat stat-muted"><span class="stat-label">必填完整率</span><span class="stat-value">${tally.complete}<small>%</small></span></div>
       </div>
+      <p class="signup-hint">已签退累计时长：${S.durationText(tally.duration)}。未签退者的实时在场时长单列展示，不计入已确认时长。</p>
       <div class="assets-toolbar">
         <button class="button button-primary" data-signup-sync data-write>同步最新提交</button>
         <button class="button button-ghost" data-signup-clear-queue data-write>清空同步队列（${queued}）</button>
@@ -263,6 +270,10 @@ window.WB.views = window.WB.views || {};
     const dupes = S.dupeValues(current);
     const key = current.fields.find((field) => field.id === current.keyField);
     const body = current.records.map((record, index) => {
+      const attendance = S.attendanceOf(record);
+      if (roleFilter !== 'all' && (record.role || 'participant') !== roleFilter) return '';
+      if (statusFilter === 'present' && !attendance.present || statusFilter === 'left' && (!record.checkinAt || attendance.present) || statusFilter === 'absent' && record.checkinAt) return '';
+      if (search && !Object.values(record.values).some((value) => String(value).toLowerCase().includes(search.toLowerCase()))) return '';
       const keyValue = key ? U.text(record.values[key.id]) : '';
       const dupe = keyValue && dupes.has(keyValue);
       return `<tr data-signup-record-row="${index}" class="${dupe ? 'is-dupe' : ''}">
@@ -270,17 +281,25 @@ window.WB.views = window.WB.views || {};
         <td class="col-time">${escapeHtml(fmtDateTime(record.at))}</td>
         <td><span class="chip">${escapeHtml(S.SOURCE_LABEL[record.source] || record.source)}</span>${record.schemaChanged ? ' <span class="chip chip-over" title="提交时的表单结构和现在不一样，请核对">结构已变</span>' : ''}${dupe ? ` <span class="chip chip-over">重复 ${escapeHtml(keyValue)}</span>` : ''}</td>
         ${current.fields.map((field) => `<td>${cellHtml(current, record, index, field)}</td>`).join('')}
-        <td class="col-checkin">${record.checkinAt
-          ? `<button class="chip chip-ok" data-signup-checkin="${index}" data-write title="取消签到">已签到</button>`
-          : `<button class="chip" data-signup-checkin="${index}" data-write title="标记为已到场">签到</button>`}</td>
+        <td>${record.role === 'staff' ? '工作人员' : '参与者'}</td>
+        <td class="col-time">${record.checkinAt ? escapeHtml(fmtDateTime(record.checkinAt)) : '—'}</td>
+        <td class="col-time">${record.checkoutAt ? escapeHtml(fmtDateTime(record.checkoutAt)) : '—'}</td>
+        <td>${S.durationText(attendance.duration)}${attendance.present ? `<small class="signup-hint">（在场累计 ${S.durationText(attendance.liveDuration)}）</small>` : ''}</td>
+        <td><details><summary>${attendance.present ? '在场' : record.checkinAt ? '已离场' : '未签到'} · 流水</summary>${(record.attendance || []).map((e) => `<p class="signup-hint">${e.kind === 'checkin' ? '签到' : e.kind === 'checkout' ? '签退' : '重置'} ${escapeHtml(fmtDateTime(e.at))} · ${escapeHtml(e.by || '')}</p>`).join('') || '历史记录'}</details></td>
+        <td class="col-checkin"><button class="chip ${attendance.present ? 'chip-ok' : ''}" data-signup-checkin="${index}" data-write>${attendance.present ? '代签退' : record.checkinAt ? '再次签到' : '代签到'}</button></td>
         <td class="col-act"><button class="row-remove" data-signup-remove="${index}" data-write title="删除这一条">×</button></td>
       </tr>`;
     }).join('');
     return `<div class="card">
       <div class="card-title"><h3>④ 参与者明细</h3><small>${tally.total} 条 · 表格里的内容可直接改（组织者可代为修正）</small></div>
+      <div class="assets-toolbar">
+        <label>身份 <select data-signup-role-filter><option value="all">全部人员</option><option value="participant" ${roleFilter === 'participant' ? 'selected' : ''}>参与者</option><option value="staff" ${roleFilter === 'staff' ? 'selected' : ''}>工作人员</option></select></label>
+        <label>状态 <select data-signup-status-filter>${[['all', '全部状态'], ['present', '当前在场'], ['left', '已离场'], ['absent', '未签到']].map(([value, label]) => `<option value="${value}" ${statusFilter === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+        <input data-signup-search value="${escapeHtml(search)}" placeholder="搜索姓名、学号、手机（回车筛选）" aria-label="搜索参与者" />
+      </div>
       <div class="signup-table-wrap">
         <table class="signup-table signup-records">
-          <thead><tr><th class="col-idx">#</th><th class="col-time">提交时间</th><th>来源</th>${current.fields.map((field) => `<th>${escapeHtml(field.label)}${field.required ? ' <b>*</b>' : ''}</th>`).join('')}<th class="col-checkin">签到</th><th class="col-act"></th></tr></thead>
+          <thead><tr><th class="col-idx">#</th><th class="col-time">提交时间</th><th>来源</th>${current.fields.map((field) => `<th>${escapeHtml(field.label)}${field.required ? ' <b>*</b>' : ''}</th>`).join('')}<th>身份</th><th>首次签到</th><th>最近签退</th><th>已确认时长</th><th>考勤状态 / 流水</th><th class="col-checkin">操作</th><th class="col-act"></th></tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>
@@ -333,6 +352,7 @@ window.WB.views = window.WB.views || {};
     const current = signup();
     if (!current) { body.innerHTML = '<div class="card"><div class="empty">该项目还没有参与者信息收集数据。</div></div>'; return; }
     /* 表单定义同步到本机存储：这样短链接（#p=…）在同一浏览器里也能打开正式表单 */
+    if (U.canOperate()) S.rememberSchema(current);
     S.storeForm(current, projectId());
     body.innerHTML = current.enabled
       ? `${heroHtml(current)}${fieldsHtml(current)}${channelsHtml(current)}${liveHtml(current)}${recordsHtml(current)}`
@@ -349,9 +369,9 @@ window.WB.views = window.WB.views || {};
 
   function pullQueue(options = {}) {
     const current = signup();
-    if (!current || !current.enabled) return null;
+    if (!current || !current.enabled || window.WB.sync?.role === 'viewer') return null;
     const result = S.syncFromQueue(current, projectId());
-    if (!result || !(result.added || result.updated || result.checkin)) return result;
+    if (!result || !(result.added || result.updated || result.checkin || result.checkout)) return result;
     save();
     window.WB.renderPanelsMeta?.();
     if (options.render !== false) render();
@@ -373,20 +393,23 @@ window.WB.views = window.WB.views || {};
 
   /* 要不要去服务端登记短码：还没登记过，或表单改过（登记过一次之后就不再重复发） */
   function needRegister(current) {
-    return Boolean(current && current.enabled && (!current.linkCode || current.linkFp !== S.fingerprint(current)));
+    return Boolean(current && current.enabled && (!current.linkCode || current.linkFp !== S.fingerprint(current) || current.linkSchema && current.linkSchema !== S.packSchema(current, 'full')));
   }
 
   async function registerLink(options = {}) {
     const current = signup();
-    if (!current || !current.enabled) return null;
+    if (!current || registering || !U.canOperate()) return null;
     const schema = S.packSchema(current, 'full');
     const fingerprint = S.fingerprint(current);
-    if (current.linkCode && current.linkFp === fingerprint && !options.force) return current.linkCode;
+    if (current.linkCode && current.staffCode && current.linkSchema === schema && current.linkEnabled === current.enabled && !options.force) return current.linkCode;
+    registering = true;
+    const id = projectId();
+    const enabled = current.enabled;
     try {
       const res = await fetch('/api/signup/link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: projectId(), schema, fingerprint })
+        body: JSON.stringify({ projectId: id, schema, fingerprint, enabled: current.enabled })
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -394,35 +417,48 @@ window.WB.views = window.WB.views || {};
       const changed = current.linkCode !== data.code;
       current.linkCode = data.code;
       current.linkFp = fingerprint;
+      current.linkSchema = schema;
+      current.linkEnabled = enabled;
+      const staffResponse = await fetch('/api/signup/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, schema, role: 'staff', enabled: current.enabled }) });
+      if (staffResponse.ok) current.staffCode = (await staffResponse.json()).code;
+      if (id !== projectId() || current !== signup()) return null;
       save();
       if ((changed || options.force) && options.render !== false) render();
       return data.code;
-    } catch { return null; }
+    } catch { return null; } finally {
+      registering = false;
+      if (current === signup() && current.enabled !== enabled) registerLink({ force: true });
+    }
   }
 
   async function pullServer(options = {}) {
     const current = signup();
-    if (!current || !current.enabled || !current.linkCode) return null;
+    if (!current || !current.enabled || !current.linkCode || serverBusy || window.WB.sync?.role === 'viewer') return null;
+    serverBusy = true;
+    const id = projectId();
     const since = Math.max(0, Number(current.serverCursor) || 0);
     try {
       const res = await fetch(`/api/signup/queue?project=${encodeURIComponent(projectId())}&since=${since}`);
       if (!res.ok) return null;
       const data = await res.json();
+      if (id !== projectId() || current !== signup()) return null;
       const records = Array.isArray(data && data.records) ? data.records : [];
       const total = Number(data && data.total);
       const moved = Number.isFinite(total) && total !== since;
-      if (Number.isFinite(total)) current.serverCursor = Math.max(since, total);
+      const next = Number.isFinite(Number(data.next)) ? Number(data.next) : since + records.length;
+      if (Number.isFinite(total)) current.serverCursor = Math.min(total, next);
+      syncMessage = `服务端已收 ${Number.isFinite(total) ? total : '?'} 条流水 · 已同步 ${current.serverCursor} 条`;
       if (!records.length) {
         if (moved) save();
         return null;
       }
       const result = S.mergeEvents(current, records, { source: 'link' });
-      save();
-      if (options.render !== false) render();
+      store().save();
+      if (options.render !== false && !document.activeElement?.closest?.('#signupPanel input, #signupPanel textarea, #signupPanel select')) render();
       window.WB.renderPanelsMeta?.();
       if (options.announce) window.WB.toast(`手机直传：新收 ${result.added + result.updated} 条`);
       return result;
-    } catch { return null; }
+    } catch { syncMessage = '服务未连接 · 本机数据已保留'; return null; } finally { serverBusy = false; }
   }
 
   function readFileText() {
@@ -464,6 +500,18 @@ window.WB.views = window.WB.views || {};
       if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
         try {
           const data = JSON.parse(trimmed);
+          if (data.format === 'structured-activity-workbench-signup' && Array.isArray(data.records) && Array.isArray(data.fields)) {
+            const current = signup();
+            const imported = S.normalise({ enabled: true, fields: data.fields, records: data.records, keyField: data.keyField });
+            if (!current.records.length) { current.fields = imported.fields; current.keyField = imported.keyField; }
+            let added = 0;
+            for (const record of imported.records) {
+              if (current.records.some((item) => item.id === record.id)) continue;
+              record.values = Object.fromEntries(imported.fields.map((field) => [current.fields.find((own) => own.label === field.label)?.id || field.id, record.values[field.id] || '']));
+              current.records.push(record); added++;
+            }
+            save(); render(); window.WB.renderPanelsMeta?.(); window.WB.toast(`导入 ${added} 条完整记录（含身份与考勤流水）`); return;
+          }
           const list = Array.isArray(data) ? data : (data.receipts || data.records || []);
           if (list.length && typeof list[0] === 'string') { importText(list.join('\n')); return; }
           const current = signup();
@@ -501,6 +549,7 @@ window.WB.views = window.WB.views || {};
     panel.addEventListener('click', (event) => {
       const el = event.target.closest('[data-signup-enable],[data-signup-disable],[data-signup-preset],[data-signup-add],[data-signup-move],[data-signup-remove-field],[data-signup-key],[data-signup-view-link],[data-signup-download-qr],[data-signup-view-page],[data-signup-view-preview],[data-signup-view-code],[data-signup-sync],[data-signup-clear-queue],[data-signup-add-row],[data-signup-checkin],[data-signup-remove],[data-signup-import],[data-signup-import-file],[data-signup-export-csv],[data-signup-export-md],[data-signup-export-json],[data-signup-use-lan],[data-signup-check-net]');
       if (!el) return;
+      if (el.hasAttribute('data-write') && !U.canOperate()) return;
       const current = signup();
       const name = U.safeFileName(store().projectName());
       const on = (attribute) => el.hasAttribute(attribute) || el.closest(`[${attribute}]`) === el;
@@ -534,6 +583,7 @@ window.WB.views = window.WB.views || {};
       if (on('data-signup-disable')) {
         current.enabled = false;
         save();
+        registerLink({ force: true });
         render();
         window.WB.toast('已关闭收集入口，已收到的记录仍然保留');
         return;
@@ -620,7 +670,8 @@ window.WB.views = window.WB.views || {};
         return;
       }
       if (on('data-signup-add-row')) {
-        S.addRecord(current, current.fields.map(() => ''), 'manual');
+        const added = S.addRecord(current, current.fields.map(() => ''), 'manual');
+        added.role = roleFilter === 'staff' ? 'staff' : 'participant';
         save();
         render();
         window.WB.toast('已补登一行，直接在表格里填即可');
@@ -630,7 +681,9 @@ window.WB.views = window.WB.views || {};
       if (checkin != null) {
         const record = current.records[Number(checkin)];
         if (!record) return;
-        S.toggleCheckin(current, record.id);
+        const kind = S.attendanceOf(record).present ? 'checkout' : 'checkin';
+        if (!S.attend(current, record.id, kind, Date.now(), store().state.user?.name || '管理者')) return;
+        publishAttendance(current, record, kind);
         save();
         render();
         return;
@@ -670,9 +723,9 @@ window.WB.views = window.WB.views || {};
           exportedAt: new Date().toISOString(),
           fields: current.fields,
           keyField: current.keyField,
-          receipts: current.records.map((record) => S.packReceipt({
-            kind: 'submit', id: record.id, at: record.at, h: S.fingerprint(current), values: S.fieldsToValues(current, record)
-          })),
+          receipts: current.records.flatMap((record) => [S.packReceipt({
+            kind: 'submit', id: record.id, at: record.at, h: S.fingerprint(current), values: S.fieldsToValues(current, record), role: record.role
+          }), ...(record.attendance || []).map((event) => S.packReceipt({ ...event, id: record.id, h: S.fingerprint(current), role: record.role }))]),
           records: current.records
         };
         U.downloadText(`${name}-参与者信息.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
@@ -681,6 +734,7 @@ window.WB.views = window.WB.views || {};
 
     /* 字段表：文本类即时改，类型/必填/选项改完重绘 */
     panel.addEventListener('input', (event) => {
+      if (!U.canOperate()) return;
       const el = event.target.closest('[data-signup-field]');
       const base = event.target.closest('[data-signup-base]');
       if (base) { signup().base = base.value.trim(); save(); return; }
@@ -696,6 +750,10 @@ window.WB.views = window.WB.views || {};
     });
 
     panel.addEventListener('change', (event) => {
+      if (event.target.matches?.('[data-signup-role-filter]')) { roleFilter = event.target.value; render(); return; }
+      if (event.target.matches?.('[data-signup-status-filter]')) { statusFilter = event.target.value; render(); return; }
+      if (event.target.matches?.('[data-signup-search]')) { search = event.target.value.trim(); render(); return; }
+      if (!U.canOperate()) return;
       const el = event.target.closest('[data-signup-field]');
       if (el && (el.dataset.signupField === 'label' || el.dataset.signupField === 'options')) {
         save();
@@ -727,6 +785,7 @@ window.WB.views = window.WB.views || {};
 
     /* 记录表里的文本单元格直接改内容（不重绘，免得焦点丢失） */
     panel.addEventListener('input', (event) => {
+      if (!U.canOperate()) return;
       const cell = event.target.closest('[data-signup-record][data-signup-cell]');
       if (!cell) return;
       const current = signup();
@@ -778,6 +837,18 @@ window.WB.views = window.WB.views || {};
       return;
     }
     window.prompt('复制这段内容：', value);
+  }
+
+  async function publishAttendance(current, record, kind) {
+    try {
+      const response = await fetch('/api/signup/manage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId(), schema: S.packSchema(current), record, values: S.fieldsToValues(current, record), kind, by: store().state.user?.name || '管理者' }) });
+      if (!response.ok) window.WB.toast('考勤已存本机；服务端同步失败，请检查连接后导出备份。');
+      else {
+        const data = await response.json();
+        if (data.record) Object.assign(record, { attendance: data.record.attendance, checkinAt: data.record.checkinAt, checkoutAt: data.record.checkoutAt });
+        store().save();
+      }
+    } catch { window.WB.toast('考勤已存本机；服务未连接。'); }
   }
 
   window.WB.views.signup = {

@@ -318,7 +318,7 @@ window.WB = window.WB || {};
      组织者可管理项目库；成员可编辑内容与跑演练；访客只读。
      未登录时按最低权限处理，避免登录门出现前出现可写按钮。 */
   const currentUser = () => window.WB.store?.state?.user || null;
-  const currentRole = () => currentUser()?.role || 'viewer';
+  const currentRole = () => window.WB.sync?.role || currentUser()?.role || 'viewer';
   const canManage = () => currentRole() === 'organizer';
   const canOperate = () => canManage() || currentRole() === 'member';
   const roleLabel = (value) => consts.ROLE_LABEL[value || currentRole()] || '未登录';

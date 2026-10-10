@@ -1766,6 +1766,24 @@ tr.is-blocked > td { background: #fef7f6; }
 .asset-foot { display: flex; align-items: center; justify-content: space-between; }
 .asset-foot small { color: var(--text-faint); font-size: 11.5px; }
 
+.library-tabs, .library-filters, .library-links { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.library-filters { width: 100%; }
+.library-filters input { flex: 1; min-width: 220px; }
+.library-filters input, .library-filters select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font: inherit; font-size: 13px; }
+.library-card .asset-info > label, .library-card .asset-meta-row > label { display: flex; flex-direction: column; gap: 4px; color: var(--text-soft); font-size: 12px; }
+.library-card .asset-meta-row > label { flex: 1; min-width: 0; }
+.library-card .asset-info input, .library-card .asset-info select { min-width: 0; width: 100%; box-sizing: border-box; }
+.library-card .asset-info .library-use { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.library-card .library-use input { width: 16px; height: 16px; flex: none; }
+.library-note { font-size: 12px; line-height: 1.7; color: var(--text-soft); margin: 4px 0 14px; }
+.library-content summary, .library-context summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 6px 0; }
+.library-content textarea { width: 100%; min-height: 180px; resize: vertical; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; line-height: 1.6; box-sizing: border-box; }
+.library-context { margin-top: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.library-context pre { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.library-links { font-size: 12px; }
+.library-links .button { padding: 4px 8px; font-size: 12px; }
+@media (max-width: 600px) { .library-filters input { flex-basis: 100%; min-width: 0; } }
+
 /* ── 帮助与数据 ─────────────────────────── */
 
 .data-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; }
@@ -2885,3 +2903,16 @@ body.is-gesturing, body.is-gesturing * { user-select: none !important; -webkit-u
 .flow-palette-empty { padding: 14px 12px; color: var(--text-faint); font-size: 12.5px; }
 .flow-palette-foot { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--text-faint); font-size: 11.5px; }
 @media (prefers-reduced-motion: reduce) { .flow-node.is-flash { animation: none; } .flow-palette-box { animation: none; } }
+/* Shared-project status stays visible when changing views. */
+.shared-bar { position: sticky; top: 0; z-index: 90; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 20px; background: #e8f4ee; color: #174737; border-bottom: 1px solid #b9dcca; font-size: 13px; }
+.shared-bar[hidden] { display: none !important; }
+.shared-bar span { flex: 1; min-width: 220px; }
+.shared-bar button { border: 1px solid #a9cbb9; border-radius: 7px; background: #fff; color: inherit; padding: 5px 9px; cursor: pointer; }
+.signup-staff-entry { margin-top: 20px; padding: 16px; border: 1px solid #c5d9e8; border-radius: 12px; background: #f4f9fd; }
+.signup-staff-entry .signup-qr svg { max-width: 160px; height: auto; }
+.signup-staff-entry input { width: 100%; padding: 9px; }
+.signup-records .col-time { min-width: 145px; }
+.signup-records details { min-width: 140px; }
+.signup-records td small { display: block; }
+.signup-records th { white-space: nowrap; }
+@media (max-width: 640px) { .shared-bar { padding: 8px 12px; } .assets-toolbar label { max-width: 100%; } }

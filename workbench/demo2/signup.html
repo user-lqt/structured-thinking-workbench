@@ -63,7 +63,7 @@
   </head>
   <body>
     <div class="card" id="app"></div>
-    <p class="foot">本页由工作台生成，数据留在本机浏览器；没有网络时请把「回执码」发给组织者。</p>
+    <p class="foot">提交到活动组织者的服务后才算送达；本机保留回执备份。网络中断时可重试或发送回执。</p>
 
     <script src="./core/qr.js"></script>
     <script src="./core/signup.js"></script>
@@ -75,7 +75,7 @@
         const esc = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => (
           { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
         ));
-        const uid = (prefix) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        const uid = (prefix) => `${prefix}-${window.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)}`;
 
         /* ── 解析地址：p 项目号 / d 表单码 / m 本机回执 ── */
         function params() {
@@ -86,7 +86,7 @@
             const at = chunk.indexOf('=');
             const key = at < 0 ? chunk : chunk.slice(0, at);
             const value = at < 0 ? '' : chunk.slice(at + 1);
-            out[decodeURIComponent(key)] = value;
+            try { out[decodeURIComponent(key)] = decodeURIComponent(value); } catch { /* malformed fragment */ }
           }
           return out;
         }
@@ -105,6 +105,7 @@
         /* 表单定义来自「链接 / 服务端 / 本机已存版本」才算可信；只有可信才直传，
            扫到过期短码（服务端取不到定义、退回通用最小表单）时不再往服务端塞数据 */
         let trustedForm = false;
+        let personRole = 'participant', loading = Boolean(query.p && !query.d), loadError = '', pushError = '';
 
         if (fromLink) {
           schema = S.unpackSchema(query.d);
@@ -130,7 +131,7 @@
           if (query.d || !query.p) return false;
           try {
             const res = await fetch(`/api/signup/form?p=${encodeURIComponent(query.p)}`);
-            if (!res.ok) return false;
+            if (!res.ok) { loadError = (await res.json()).error || '表单加载失败，请重新扫码。'; return false; }
             const data = await res.json();
             const parsed = data && data.d ? S.unpackSchema(data.d) : null;
             if (!parsed) return false;
@@ -140,9 +141,10 @@
             schema.fields = (parsed.fields || []).map((field, index) => ({ ...field, id: field.id || `f${index + 1}` }));
             schemaSource = '表单来自组织者电脑';
             trustedForm = true;
+            personRole = data.role === 'staff' ? 'staff' : 'participant';
             if (view === 'form' && !draft) render();
             return true;
-          } catch { return false; }
+          } catch { loadError = '服务暂时连接不上，请检查网络后刷新页面。'; return false; }
         }
 
         let pushed = '';
@@ -154,23 +156,41 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ p: projectId, receipt: code })
             });
-            return res.ok;
-          } catch { return false; }
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { pushError = data.error || '发送失败，请重试'; return false; }
+            if (data.receipt) {
+              mine.acknowledged ||= {};
+              mine.acknowledged[code] = data.receipt;
+              const folded = S.fresh({ fields: schema.fields });
+              S.mergeEvents(folded, (mine.receipts || [code]).map((item) => mine.acknowledged[item] || item));
+              const record = folded.records.find((item) => item.id === mine.id);
+              if (record) Object.assign(mine, { attendance: record.attendance, checkinAt: record.checkinAt, checkoutAt: record.checkoutAt });
+              if (!fromLink) S.appendToQueue(projectId, data.receipt);
+              writeMine(mine);
+            }
+            return true;
+          } catch { pushError = '网络连接失败'; return false; }
         }
         function pushAndReport(code) {
           if (!knownProject || !trustedForm) { pushed = 'fail'; render(); return; }
           pushed = 'pending';
           render();
-          pushReceipt(code).then((ok) => { pushed = ok ? 'ok' : 'fail'; render(); });
+          (async () => {
+            let ok = true;
+            for (const item of mine.receipts || [code]) { if (mine.acknowledged?.[item]) continue; if (!await pushReceipt(item)) { ok = false; break; } }
+            pushed = ok ? 'ok' : 'fail'; view = 'status'; render();
+          })();
         }
 
         /* 上一次在本机提交过的记录（同一浏览器里可以改自己的信息、签到） */
         let mine = readMine();
+        if (mine?.acknowledged && (mine.receipts || []).every((item) => mine.acknowledged[item])) pushed = 'ok';
         let view = mine ? 'status' : 'form';
         let receipt = mine ? mine.receipt : '';
         /* reuseId = 正在编辑的记录号：改自己的信息时复用，点「再填一位」时清空重新分配 */
         let reuseId = mine ? mine.id : '';
         let draft = null;
+        let editingSchema = '';
 
         function readMine() {
           try {
@@ -181,6 +201,18 @@
         }
         function writeMine(value) {
           try { localStorage.setItem(S.mineKey(projectId), JSON.stringify(value)); } catch { /* 私隐模式忽略 */ }
+        }
+
+        async function refreshAttendance() {
+          if (!mine || !query.p || !trustedForm || pushed === 'pending') return;
+          try {
+            const response = await fetch(`/api/signup/status?p=${encodeURIComponent(query.p)}&record=${encodeURIComponent(mine.id)}`);
+            if (!response.ok) return;
+            const data = await response.json();
+            Object.assign(mine, { attendance: data.attendance, checkinAt: data.checkinAt, checkoutAt: data.checkoutAt, role: data.role });
+            writeMine(mine);
+            if (view === 'status') render();
+          } catch { /* Keep the local receipt available offline. */ }
         }
 
         const fingerprint = () => S.fingerprint({ title: '', note: '', keyField: schema.keyField, fields: schema.fields });
@@ -211,8 +243,10 @@
         }
 
         function formHtml() {
+          if (loading) return '<h1>正在载入活动表单…</h1><p class="note">请稍候，确认活动与字段后再填写。</p>';
+          if (loadError && !trustedForm) return `<h1>暂时无法填写</h1><p class="note">${esc(loadError)}</p><button onclick="location.reload()">重新连接</button>`;
           return `
-            <div class="eyebrow">参与者信息填写</div>
+            <div class="eyebrow">${personRole === 'staff' ? '工作人员 / 现场管理者登记' : '参与者信息填写'}</div>
             <h1>${esc(schema.title || '请填写你的信息')}</h1>
             ${schema.note ? `<p class="note">${esc(schema.note)}</p>` : ''}
             <p class="source">${esc(schemaSource)} · 带 <b style="color:#dc2626">*</b> 的必填</p>
@@ -235,25 +269,27 @@
 
         function statusHtml() {
           const record = mine || { at: Date.now() };
+          const attendance = S.attendanceOf(record);
           const when = new Date(record.at).toLocaleString('zh-CN', { hour12: false });
           return `
             <div class="ok">
               <div class="mark">✓</div>
-              <h1>${record.checkinAt ? '已提交并签到' : '已提交'}</h1>
-              <p class="note">提交时间：${esc(when)}${record.checkinAt ? `<br />签到时间：${esc(new Date(record.checkinAt).toLocaleString('zh-CN', { hour12: false }))}` : ''}</p>
+              <h1>${pushed === 'pending' ? '本机已保存 · 正在发送' : pushed === 'fail' ? '尚未送达，请重试' : record.checkinAt ? attendance.present ? '已签到 · 当前在场' : '已签退' : '已登记'}</h1>
+              <p class="note">${personRole === 'staff' ? '工作人员' : '参与者'} · 提交时间：${esc(when)}${record.checkinAt ? `<br />签到时间：${esc(new Date(record.checkinAt).toLocaleString('zh-CN', { hour12: false }))}` : ''}${record.checkoutAt ? `<br />签退时间：${esc(new Date(record.checkoutAt).toLocaleString('zh-CN', { hour12: false }))}` : ''}<br />已确认在场时长：${S.durationText(attendance.duration)}${attendance.present ? `<br />含本次在场：${S.durationText(attendance.liveDuration)}` : ''}</p>
             </div>
             ${pushed === 'ok'
               ? '<div class="banner info"><b>已直达组织者电脑 ✓</b>你的信息已经送过去了，一般几秒内出现在表格里；下面这张回执码留作备份。</div>'
               : pushed === 'pending'
                 ? '<div class="banner info">正在发送给组织者电脑…</div>'
                 : pushed === 'fail'
-                  ? '<div class="banner warn">没能直接发到组织者电脑（没连上服务，或这张二维码没带项目号）：把下面的回执码发给他即可。</div>'
+                  ? `<div class="banner warn">${esc(pushError || '没能直接发到组织者电脑（没连上服务，或这张二维码没带项目号）')}。请重试，或把完整回执码发给组织者。</div>`
                   : '<div class="banner info">如果组织者那边没有收到，把下面的回执码发给他即可。</div>'}
             <textarea class="code" id="receiptText" rows="3" readonly>${esc(receipt)}</textarea>
             ${receiptQr()}
             <div class="row" style="margin-top:12px">
               <button type="button" class="ghost" id="copyReceipt">复制回执码</button>
-              ${record.checkinAt ? '' : '<button type="button" id="checkin">我已到场，签到</button>'}
+              ${attendance.present ? '<button type="button" id="checkout">我要离场，签退</button>' : `<button type="button" id="checkin">${record.checkinAt ? '再次到场，签到' : '我已到场，签到'}</button>`}
+              ${pushed === 'fail' ? '<button type="button" id="retry">重新发送全部回执</button>' : ''}
             </div>
             <div class="row" style="margin-top:10px">
               <button type="button" class="ghost" id="editMine">修改我的信息</button>
@@ -274,24 +310,7 @@
           else bindStatus();
         }
 
-        function doneHtml() {
-          return `
-            <div class="ok">
-              <div class="mark">✓</div>
-              <h1>提交成功</h1>
-              <p class="note">${knownProject ? '组织者会实时看到你的信息。' : '链接里没带项目号、这台设备也认不出项目：把下面的回执码发给组织者（或让他导入 CSV），就能把你登记进表。'}</p>
-            </div>
-            <textarea class="code" id="receiptText" rows="3" readonly>${esc(receipt)}</textarea>
-            ${receiptQr()}
-            <div class="row" style="margin-top:12px">
-              <button type="button" class="ghost" id="copyReceipt">复制回执码</button>
-              <button type="button" id="checkin">我已到场，签到</button>
-            </div>
-            <div class="row" style="margin-top:10px">
-              <button type="button" class="ghost" id="another">再填一位</button>
-              <button type="button" class="ghost" id="editMine">修改我的信息</button>
-            </div>`;
-        }
+        function doneHtml() { return statusHtml(); }
 
         /* ── 提交 ───────────────────────────── */
 
@@ -319,6 +338,7 @@
         }
 
         function submit() {
+          if (editingSchema && editingSchema !== fingerprint()) { draft = collect(); alert('组织者更新了表单，请核对字段后再提交。'); editingSchema = fingerprint(); render(); return; }
           const values = collect();
           const errors = validate(values);
           app.querySelectorAll('.field').forEach((row) => row.classList.remove('is-bad'));
@@ -337,22 +357,30 @@
           }
           const id = reuseId || uid('rec');
           const at = Date.now();
-          receipt = S.packReceipt({ kind: 'submit', id, at, h: fingerprint(), values });
-          const queued = S.appendToQueue(projectId, receipt);
+          const previous = mine?.id === id ? mine : null;
+          const code = S.packReceipt({ kind: 'submit', id, at, h: fingerprint(), values, role: personRole });
+          receipt = code;
+          const queued = fromLink || !knownProject ? S.appendToQueue(projectId, receipt) : 0;
           reuseId = id;
           draft = values;
-          mine = { id, at, values, receipt, checkinAt: 0, queued };
+          mine = { id, at, values, receipt, checkinAt: previous?.checkinAt || 0, checkoutAt: previous?.checkoutAt || 0, attendance: previous?.attendance || [], receipts: [...(previous?.receipts || []), code], acknowledged: previous?.acknowledged || {}, queued, role: personRole };
+          receipt = mine.receipts.join('\n'); mine.receipt = receipt;
           writeMine(mine);
           view = 'done';
           pushAndReport(receipt);
         }
 
-        function checkin() {
-          if (!mine) return;
+        function checkin(kind = 'checkin') {
+          if (!mine || pushed === 'pending') return;
+          if (loading || !trustedForm) { alert('请先连接活动表单，再签到或签退。'); return; }
           const at = Date.now();
-          const code = S.packReceipt({ kind: 'checkin', id: mine.id, at, h: fingerprint() });
-          S.appendToQueue(projectId, code);
-          mine.checkinAt = at;
+          const code = S.packReceipt({ kind, id: mine.id, at, h: fingerprint(), role: personRole });
+          if (fromLink || !knownProject) S.appendToQueue(projectId, code);
+          const record = { ...mine, attendance: [...(mine.attendance || [])], values: {} };
+          if (!S.attend({ records: [record] }, mine.id, kind, at, '本人扫码')) return;
+          Object.assign(mine, { attendance: record.attendance, checkinAt: record.checkinAt, checkoutAt: record.checkoutAt });
+          mine.receipts ||= [mine.receipt]; mine.receipts.push(code);
+          receipt = mine.receipts.join('\n'); mine.receipt = receipt;
           writeMine(mine);
           view = 'status';
           pushAndReport(code);
@@ -382,6 +410,7 @@
 
         function bindForm() {
           const form = document.getElementById('signupForm');
+          if (form) editingSchema ||= fingerprint();
           if (form) form.addEventListener('submit', (event) => { event.preventDefault(); submit(); });
           const apply = document.getElementById('applyCode');
           if (apply) {
@@ -394,6 +423,7 @@
               schema.keyField = parsed.keyField;
               schema.fields = parsed.fields.map((field, index) => ({ ...field, id: field.id || `f${index + 1}` }));
               schemaSource = '表单来自粘贴的表单码';
+              editingSchema = '';
               draft = null;
               render();
             });
@@ -404,7 +434,12 @@
           const copy = document.getElementById('copyReceipt');
           if (copy) copy.addEventListener('click', copyReceipt);
           const check = document.getElementById('checkin');
-          if (check) check.addEventListener('click', checkin);
+          if (check) check.addEventListener('click', () => checkin());
+          const checkout = document.getElementById('checkout');
+          if (checkout) checkout.addEventListener('click', () => checkin('checkout'));
+          const retry = document.getElementById('retry');
+          if (retry) retry.addEventListener('click', () => pushAndReport(receipt));
+          if (pushed === 'pending') app.querySelectorAll('button').forEach((button) => { button.disabled = true; });
           const another = document.getElementById('another');
           if (another) another.addEventListener('click', () => { reuseId = ''; draft = null; pushed = ''; view = 'form'; render(); });
           const edit = document.getElementById('editMine');
@@ -413,7 +448,7 @@
 
         render();
         /* 短码链接：表单定义在服务端，取回来再渲染一次 */
-        loadRemoteSchema();
+        loadRemoteSchema().finally(() => { loading = false; render(); refreshAttendance(); });
       }());
     </script>
   </body>
