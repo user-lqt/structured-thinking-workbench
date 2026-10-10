@@ -47,6 +47,154 @@ window.WB = window.WB || {};
     ROLE_LABEL: Object.fromEntries(ROLES.map((role) => [role.value, role.label]))
   };
 
+  /* ── 活动日期与活动安排 ──────────────────────────────
+     basic.days   = ['YYYY-MM-DD', ...]              哪天办（唯一事实来源）
+     basic.agenda = [{ date, start, end, title }]     每个时间段几点到几点、做什么（内容可选）
+     basic.date / start / end 是它们的投影（首日日期、最早开始、最晚结束），
+     好让倒计时、甘特、导出、海报这些只认单一日期的既有逻辑继续照常工作。 */
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  /* 兼容上一版的 schedule = [{date,start,end}]（以及更早的 date/start/end 单日） */
+  function legacySchedule(basic = {}) {
+    const clean = (item) => ({
+      date: String(item?.date ?? '').trim().slice(0, 10),
+      start: String(item?.start ?? '').trim().slice(0, 5),
+      end: String(item?.end ?? '').trim().slice(0, 5)
+    });
+    if (Array.isArray(basic.schedule)) {
+      return basic.schedule.map(clean).filter((item) => item.date || item.start || item.end);
+    }
+    if (basic.date || basic.start || basic.end) {
+      return [clean({ date: basic.date, start: basic.start, end: basic.end })];
+    }
+    return [];
+  }
+
+  /* 哪几天：只认合法日期，去重并按日期升序 */
+  function normaliseDays(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const item of raw) {
+      const day = String(item?.date ?? item ?? '').trim().slice(0, 10);
+      if (DATE_RE.test(day) && !out.includes(day)) out.push(day);
+    }
+    return out.sort();
+  }
+
+  /* 时间段：date 可空（还没归到某一天）；四样全空的行直接丢掉 */
+  function normaliseAgenda(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => ({
+      date: String(item?.date ?? '').trim().slice(0, 10),
+      start: String(item?.start ?? '').trim().slice(0, 5),
+      end: String(item?.end ?? '').trim().slice(0, 5),
+      title: String(item?.title ?? '').trim()
+    })).filter((item) => item.date || item.start || item.end || item.title);
+  }
+
+  /* 活动日期：优先 basic.days，其次用旧数据里的日期兜底 */
+  function daysOf(basic = {}) {
+    const days = normaliseDays(basic.days);
+    if (days.length) return days;
+    const fromLegacy = normaliseDays(legacySchedule(basic).map((item) => item.date));
+    if (fromLegacy.length) return fromLegacy;
+    const one = String(basic.date ?? '').trim().slice(0, 10);
+    return DATE_RE.test(one) ? [one] : [];
+  }
+
+  /* 活动安排：优先 basic.agenda，其次把旧 schedule 里的时间原样搬过来 */
+  function agendaOf(basic = {}) {
+    const agenda = normaliseAgenda(basic.agenda);
+    if (agenda.length) return agenda;
+    return legacySchedule(basic).map((item) => ({ ...item, title: '' }));
+  }
+
+  /* 把 days / agenda 投影回 date / start / end：首日日期、最早开始、最晚结束 */
+  function syncSchedule(basic) {
+    if (!basic) return basic;
+    const days = normaliseDays(basic.days);
+    const agenda = normaliseAgenda(basic.agenda);
+    const agendaDays = agenda.map((item) => item.date).filter((day) => DATE_RE.test(day)).sort();
+    basic.date = days[0] || agendaDays[0] || '';
+    const starts = agenda.map((item) => item.start).filter(Boolean).sort();
+    const ends = agenda.map((item) => item.end).filter(Boolean).sort();
+    basic.start = starts[0] || '';
+    basic.end = ends[ends.length - 1] || '';
+    return basic;
+  }
+
+  /* 「2026-11-14」→「11/14」 */
+  const shortDate = (date) => {
+    const match = String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${Number(match[2])}/${Number(match[3])}` : String(date || '');
+  };
+
+  /* 日期区间的一句话：11/14–11/16（共 3 天） */
+  function dayRangeText(days) {
+    const list = normaliseDays(days);
+    if (!list.length) return '';
+    if (list.length === 1) return shortDate(list[0]);
+    return `${shortDate(list[0])}–${shortDate(list[list.length - 1])}（共 ${list.length} 天）`;
+  }
+
+  /* 给人看的一句话摘要（项目信息表 / 海报 / AI 上下文用）：以「哪几天」为主 */
+  function scheduleSummary(basic = {}) {
+    return dayRangeText(daysOf(basic));
+  }
+
+  /* 顶栏与项目卡片用的一行式活动日期 */
+  const scheduleLabel = (basic = {}) => scheduleSummary(basic);
+
+  /* 活动安排的一句话：11/14 09:00–12:00 开幕式、14:00–17:00 展区；11/15 08:30–12:00 决赛 */
+  function agendaSummary(basic = {}) {
+    const agenda = agendaOf(basic);
+    if (!agenda.length) return '';
+    const parts = [];
+    let currentDay = null;
+    for (const item of agenda) {
+      const span = [item.start, item.end].filter(Boolean).join('–');
+      const bits = [];
+      if (item.date && item.date !== currentDay) { bits.push(shortDate(item.date)); currentDay = item.date; }
+      if (span) bits.push(span);
+      if (item.title) bits.push(item.title);
+      if (bits.length) parts.push(bits.join(' '));
+    }
+    return parts.join('；');
+  }
+
+  /* 导出 Word 用的完整写法：2026年11月14日 09:00—12:00 开幕式、14:00—17:00 展区；2026年11月15日 … */
+  function scheduleDocText(basic = {}) {
+    const longDay = (date) => {
+      const match = String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return match ? `${match[1]}年${Number(match[2])}月${Number(match[3])}日` : String(date || '');
+    };
+    const days = daysOf(basic);
+    const agenda = agendaOf(basic);
+    if (!agenda.length) {
+      if (!days.length) return '';
+      if (days.length === 1) return longDay(days[0]);
+      return `${longDay(days[0])}—${longDay(days[days.length - 1])}（共 ${days.length} 天）`;
+    }
+    const parts = [];
+    let currentDay = null;
+    for (const item of agenda) {
+      const span = [item.start, item.end].filter(Boolean).join('—');
+      const bits = [];
+      if (item.date && item.date !== currentDay) { bits.push(longDay(item.date)); currentDay = item.date; }
+      if (span) bits.push(span);
+      if (item.title) bits.push(item.title);
+      if (bits.length) parts.push(bits.join(' '));
+    }
+    for (const day of days) {
+      if (!agenda.some((item) => item.date === day)) parts.push(longDay(day));
+    }
+    return parts.join('；');
+  }
+
+  /* 访谈答案里存「哪几天」用的紧凑文本（一天一段，可无损解析） */
+  const daysText = (days) => normaliseDays(days).join('；');
+  const parseDays = (raw) => normaliseDays(String(raw ?? '').split(/[；;、,\s]+/));
+
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -67,6 +215,8 @@ window.WB = window.WB || {};
      凡是靠项目数据推断「这一项填没填」的地方，都要把它和空值一样看待。 */
   const PLACEHOLDER_RE = /^(待确认|待定|待补充|待完善|待核实|暂定|未确定|tbd|n\/a)$/i;
   const filled = (value) => {
+    /* 日程是数组：只看有没有排期，不能把空数组当成「填了」 */
+    if (Array.isArray(value)) return value.length > 0;
     const raw = text(value);
     return raw !== '' && !PLACEHOLDER_RE.test(raw);
   };
@@ -212,6 +362,17 @@ window.WB = window.WB || {};
     canOperate,
     roleLabel,
     gateRole,
-    AI_OFFLINE_HINT
+    AI_OFFLINE_HINT,
+    normaliseDays,
+    normaliseAgenda,
+    daysOf,
+    agendaOf,
+    syncSchedule,
+    scheduleSummary,
+    scheduleLabel,
+    agendaSummary,
+    scheduleDocText,
+    daysText,
+    parseDays
   };
 }());

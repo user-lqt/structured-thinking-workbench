@@ -58,4 +58,4 @@ description: 用结构化方式复盘活动，从目标达成、数据回顾到�
 - **主交付**：Word 文档（`.docx`）。章节标题映射为标题样式，Markdown 表格映射为 Word 表格。
 - **备选**：Excel（`.xlsx`）与 Markdown（`.md`）。
 - **导出入口**：「过程材料」卡片上的 `Word` / `Excel` / `Markdown` 按钮（`Word` 为主按钮），或页头的「导出材料包（Word）」。程序内对应 `window.WB.exporters.materialToDocx(doc)` / `materialToXlsx(doc)`。
-- **写作要求**：用标准 Markdown 组织正文——`#` / `##` 标题、空行分段、`-` 列表、管道表格；不要写 HTML，导出时只识别这些结构。
+- **写作要求**：用标准 Markdown 组织正文——空行分段、`-` 列表、必要时用一张管道表格；只有「本章本身就是清单 / 明细」时才用表格，说明、规则、流程、职责一律写段落。不要写 HTML，导出时只识别这些结构。

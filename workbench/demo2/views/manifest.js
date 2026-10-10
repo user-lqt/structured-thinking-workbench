@@ -4,7 +4,7 @@ window.WB.views = window.WB.views || {};
 
 (function () {
   const U = window.WB.util;
-  const { $, escapeHtml, BASIC_FIELDS, PHASES, PHASE_LABEL, OUTPUT_ITEMS, sourceBadge, paintBadge } = U;
+  const { $, $$, escapeHtml, BASIC_FIELDS, PHASES, PHASE_LABEL, OUTPUT_ITEMS, sourceBadge, paintBadge } = U;
 
   function inputType(type) {
     if (type === 'date') return 'date';
@@ -13,8 +13,31 @@ window.WB.views = window.WB.views || {};
     return 'text';
   }
 
-  /* 生成表单控件，向导与信息表共用 */
-  function fieldControl(field, attrs = '') {
+  /* ── 活动日期控件：一行一天，可自由增删 ───────
+     这里只定「哪几天」；每个时间段的起止与内容在「活动安排」里填。
+     控件只负责把结构读写成 basic.days，date / start / end 由 util.syncSchedule 从日期与安排投影出来。 */
+  const dayRowHtml = (day, index) => `<div class="day-row" data-day-row="${index}">
+      <input class="day-date" type="date" value="${escapeHtml(day || '')}" aria-label="第 ${index + 1} 天日期" />
+      <button type="button" class="day-del" data-day-del title="删除这一天">×</button>
+    </div>`;
+
+  const daysRowsHtml = (days) => ((days && days.length) ? days : ['']).map(dayRowHtml).join('');
+
+  const daysShell = (attrs, days) => `<div class="days" ${attrs}>
+      <div class="day-rows">${daysRowsHtml(days)}</div>
+      <button type="button" class="day-add" data-day-add>＋ 添加一天</button>
+    </div>`;
+
+  const daysRead = (wrapper) => (wrapper ? $$('.day-row', wrapper).map((row) => $('.day-date', row)?.value || '') : []);
+
+  const daysRepaint = (wrapper, days) => {
+    const box = wrapper ? wrapper.querySelector('.day-rows') : null;
+    if (box) box.innerHTML = daysRowsHtml(days);
+  };
+
+  /* 生成表单控件，向导、信息表与访谈问答共用 */
+  function fieldControl(field, attrs = '', opts = {}) {
+    if (field.type === 'days') return daysShell(attrs, opts.days);
     const required = field.required ? ' required' : '';
     if (field.type === 'enum') {
       const options = ['<option value="">请选择</option>']
@@ -29,6 +52,8 @@ window.WB.views = window.WB.views || {};
   }
 
   window.WB.fieldControl = fieldControl;
+  /* 活动日期控件的读写给向导与访谈复用，避免三处各写一遍 */
+  window.WB.daysField = { html: daysRowsHtml, read: daysRead, repaint: daysRepaint };
 
   function renderBasic(state) {
     const project = state.project;
@@ -36,11 +61,13 @@ window.WB.views = window.WB.views || {};
     const meta = project?.meta?.basic || {};
     const rows = BASIC_FIELDS.map((field) => `<div class="kv-row">
       <div class="kv-label">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ''}</div>
-      <div class="kv-value">${fieldControl(field, `data-basic="${field.key}"`)}</div>
-      <div class="kv-meta" id="badge-basic-${field.key}">${sourceBadge(meta[field.key] || (basic[field.key] ? 'user' : ''))}</div>
+      <div class="kv-value">${fieldControl(field, `data-basic="${field.key}"`, { days: U.daysOf(basic) })}</div>
+      <div class="kv-meta" id="badge-basic-${field.key}">${sourceBadge(meta[field.key] || (U.filled(basic[field.key]) ? 'user' : ''))}</div>
     </div>`).join('');
     $('#basicSection').innerHTML = `<div class="card-title"><h3>一、活动基本信息</h3><small>手改过的字段会标记为「用户填写」，AI 不会覆盖</small></div>${rows}`;
     for (const field of BASIC_FIELDS) {
+      /* 活动日期是整块控件，行由控件自己渲染；这里只回填单值字段 */
+      if (field.type === 'days') continue;
       const el = $(`[data-basic="${field.key}"]`);
       if (el && basic[field.key] != null) el.value = basic[field.key];
     }
@@ -56,6 +83,7 @@ window.WB.views = window.WB.views || {};
         const on = Boolean(project?.outputs?.[item.key]);
         const source = project?.meta?.outputs?.[item.key];
         const ready = window.WB.ai.isReady(item.skill);
+        const generated = Boolean(state.materials?.[item.key]);
         return `<label class="output-item ${on ? 'is-on' : ''}" data-output-item="${item.key}">
           <input type="checkbox" data-output="${item.key}" ${on ? 'checked' : ''} />
           <span class="output-text">
@@ -63,6 +91,8 @@ window.WB.views = window.WB.views || {};
             <span class="output-skill ${ready ? 'is-ready' : ''}">${escapeHtml(KIND_LABEL[item.kind] || '')} · ${escapeHtml(item.skill)}</span>
           </span>
           <span id="badge-output-${item.key}">${on ? sourceBadge(source || 'user') : ''}</span>
+          ${generated ? `<button type="button" class="output-open" data-output-open="${item.key}" title="在「过程材料」里打开这份材料">查看</button>` : ''}
+          <button type="button" class="output-edit" data-output-edit="${escapeHtml(item.key)}" title="编辑这个产出：显示名、阶段、类型、章节">编辑</button>
           ${item.custom ? `<button type="button" class="output-remove" data-skill-remove-inline="${escapeHtml(item.key)}" title="从技能库移除这个自定义产出">×</button>` : ''}
         </label>`;
       }).join('');
@@ -85,6 +115,10 @@ window.WB.views = window.WB.views || {};
         <button class="button button-ghost" data-output-preset="core">仅核心产出</button>
         <button class="button button-ghost" data-output-preset="none">清空</button>
         <button class="button button-ghost" data-skill-import>＋ 自定义产出</button>
+      </div>
+      <div class="output-hint">
+        <span>产出不在这里生成，也不放在这里：单个「AI 生成」、在线浏览与改字、导出 Word / Excel / Markdown，全都在「过程材料」页签。卡片上出现「查看」时，点它就能一步跳到那一份。</span>
+        <button type="button" class="button button-ghost" data-goto-view="material" data-goto-phase="all">去「过程材料」→</button>
       </div>
       ${orphanNote}
       ${groups}`;
@@ -228,6 +262,102 @@ window.WB.views = window.WB.views || {};
     U.downloadText('自定义技能包.md', text, 'text/markdown;charset=utf-8');
   }
 
+  /* ── 编辑产出：内置产出改显示名，自定义产出整份改 ──
+     两种产出共用一个弹窗，差别只在「能改什么」：
+       内置技能包固定 —— 只放开显示名（写进 project.meta.outputNames，按项目存）；
+       自定义技能包 —— 名称 / 阶段 / 类型 / 章节 / 生成要求全放开，改的是本机技能库里的那份。
+     产出 key 与技能 id 不动：项目里勾的就是这个 key，已生成的材料也认它。 */
+
+  const editDom = (id) => document.getElementById(id);
+  let editingKey = '';
+
+  const editTarget = () => OUTPUT_ITEMS.find((entry) => entry.key === editingKey) || null;
+  const editSkillOf = (item) => (item?.custom ? window.WB.catalog.find(item.skill) : null);
+
+  function outputEditOpen(key) {
+    const item = OUTPUT_ITEMS.find((entry) => entry.key === key);
+    if (!item || !editDom('outputEdit')) return false;
+    const catalog = window.WB.catalog;
+    const skill = editSkillOf(item);
+    const custom = Boolean(skill);
+    const sections = custom ? skill.sections : (window.SKILLS.materials?.[item.skill]?.sections || []);
+    editingKey = key;
+
+    editDom('outputEditName').value = item.label;
+    editDom('outputEditPhase').value = item.phase;
+    editDom('outputEditKind').value = item.kind;
+    editDom('outputEditSections').value = custom ? sections.join('\n') : '';
+    editDom('outputEditRules').value = custom ? (skill.rulesBody || '') : '';
+    for (const id of ['outputEditPhase', 'outputEditKind', 'outputEditSections', 'outputEditRules']) {
+      const el = editDom(id);
+      if (el) el.disabled = !custom;
+    }
+    const exportBtn = editDom('outputEditExport');
+    if (exportBtn) exportBtn.style.display = custom ? '' : 'none';
+
+    editDom('outputEditEyebrow').textContent = custom ? '技能库 · 自定义技能包' : '产出配置 · 内置技能包';
+    editDom('outputEditTitle').textContent = custom ? `编辑技能包：${item.label}` : `重命名产出：${item.label}`;
+    editDom('outputEditSubtitle').textContent = custom
+      ? '这里改的是本机技能库里的这份技能包，保存后产出配置、过程材料与导出立刻按新内容工作。'
+      : '内置技能包固定：这里改的是本项目里的显示名，阶段 / 类型 / 章节随技能包走。';
+    editDom('outputEditNote').innerHTML = custom
+      ? `<div>技能 id <code>${escapeHtml(skill.id)}</code> 与产出 key <code>${escapeHtml(skill.key)}</code> 不动。</div>
+         <div>章节改了不会重写已生成的材料：老内容留在「过程材料」里，要按新章节重写就点那张卡片的「重新生成」。</div>`
+      : `<div>内置技能包 <code>${escapeHtml(item.skill)}</code>（${escapeHtml(KIND_LABEL[item.kind] || item.kind)}）的章节固定，改章节请用「＋ 自定义产出」另建一份：</div>
+         <div class="output-edit-chips">${sections.map((heading) => `<span>${escapeHtml(heading)}</span>`).join('')}</div>`;
+    editDom('outputEdit').classList.add('is-open');
+    window.setTimeout(() => editDom('outputEditName')?.focus?.(), 30);
+    return true;
+  }
+
+  function outputEditClose() {
+    editDom('outputEdit')?.classList.remove('is-open');
+    editingKey = '';
+  }
+
+  function outputEditSave() {
+    const item = editTarget();
+    if (!item) { outputEditClose(); return false; }
+    const catalog = window.WB.catalog;
+    const custom = Boolean(editSkillOf(item));
+    const name = U.text(editDom('outputEditName').value);
+    if (!name) { window.WB.toast?.('名称不能为空'); return false; }
+    /* 技能包是 frontmatter 文本，`#` 在格式里是注释符，带进去会被吃掉 —— 这里直接拦住 */
+    if (name.includes('#')) { window.WB.toast?.('名称里不能带 #（技能包格式里 # 表示注释）'); return false; }
+
+    let message = `已改名为「${name}」`;
+    if (custom) {
+      const sections = editDom('outputEditSections').value.split('\n').map((line) => U.text(line)).filter(Boolean);
+      const result = catalog.update(item.skill, {
+        title: name,
+        phase: editDom('outputEditPhase').value,
+        kind: editDom('outputEditKind').value,
+        sections,
+        rulesBody: U.text(editDom('outputEditRules').value)
+      });
+      if (!result.ok) { window.WB.toast?.(`保存失败：${result.errors[0] || '格式不合法'}`); return false; }
+      message = `已保存技能包：${name}（${sections.length} 章）`;
+    } else {
+      catalog.rename(item.key, name);
+    }
+    window.WB.store.save();
+    outputEditClose();
+    window.WB.views.manifest.render();
+    window.WB.renderPanelsMeta?.();
+    window.WB.toast?.(message);
+    return true;
+  }
+
+  function outputEditExport() {
+    const item = editTarget();
+    const skill = editSkillOf(item);
+    if (!skill) { window.WB.toast?.('只有自定义技能包可以导出'); return false; }
+    const file = `${U.safeFileName(skill.id)}.SKILL.md`;
+    U.downloadText(file, skill.source, 'text/markdown;charset=utf-8');
+    window.WB.toast?.(`已导出 ${file}`);
+    return true;
+  }
+
   function renderNotes(state) {
     const notes = state.project?.notes;
     const box = $('#manifestNotes');
@@ -280,8 +410,40 @@ window.WB.views = window.WB.views || {};
     if (hint && message) hint.textContent = message;
   }
 
+  /* 访谈卡里的活动日期控件：把控件内容存成答案的紧凑文本（一天一段） */
+  function storeDaysAnswer(wrapper, id) {
+    if (!wrapper || !id) return;
+    const draft = IV().draftOf(window.WB.store.state);
+    draft.answers[id] = U.daysText(daysRead(wrapper));
+    window.WB.store.save();
+    interviewRefresh();
+  }
+
+  /* 活动日期行的增删：读 → 改 → 只重画这一块 → 写回草稿 */
+  function interviewDaysEdit(event) {
+    const add = event.target.closest('[data-day-add]');
+    const del = event.target.closest('[data-day-del]');
+    if (!add && !del) return false;
+    const wrapper = (add || del).closest('[data-interview-days]');
+    if (!wrapper) return true;
+    const days = daysRead(wrapper);
+    if (add) days.push('');
+    else days.splice(Number(del.closest('.day-row')?.dataset?.dayRow) || 0, 1);
+    daysRepaint(wrapper, days.length ? days : ['']);
+    storeDaysAnswer(wrapper, wrapper.dataset.interviewDays);
+    if (add) wrapper.querySelector('.day-row:last-child .day-date')?.focus();
+    return true;
+  }
+
   function interviewSyncInput() {
     if (session.stage !== 'asking') return;
+    const question = session.questions[session.index];
+    /* 活动日期是整块控件：存成紧凑文本，成稿与写回都靠它往返 */
+    if (question?.type === 'days') {
+      const wrapper = ivDom('interviewDays');
+      if (wrapper) storeDaysAnswer(wrapper, question.id);
+      return;
+    }
     const input = ivDom('interviewInput');
     const id = input?.dataset?.interviewInput;
     if (!input || !id) return;
@@ -489,10 +651,12 @@ window.WB.views = window.WB.views || {};
           ${question.ai ? '<i class="iv-tag is-ai">AI 追问</i>' : ''}</div>
         <div class="iv-ask">${escapeHtml(question.ask)}</div>
         ${question.why ? `<div class="iv-why"><span>缺这一项会怎样</span>${escapeHtml(question.why)}</div>` : ''}
-        ${fieldControl({ type: question.type, options: question.options, placeholder: question.placeholder }, `data-interview-input="${question.id}" id="interviewInput"`)}
+        ${question.type === 'days'
+          ? daysShell(`data-interview-days="${question.id}" id="interviewDays"`, U.parseDays(draft.answers[question.id]))
+          : fieldControl({ type: question.type, options: question.options, placeholder: question.placeholder }, `data-interview-input="${question.id}" id="interviewInput"`)}
         ${question.hint ? `<div class="iv-hint">${escapeHtml(question.hint)}</div>` : ''}
         ${interviewGuideHtml(state, question, draft)}
-        ${question.filled ? `<div class="iv-existing">目前写的是：${escapeHtml(U.text(state.project.basic[question.key]))}</div>` : ''}
+        ${question.filled ? `<div class="iv-existing">目前写的是：${escapeHtml(question.key === 'days' ? U.scheduleSummary(state.project.basic) : U.text(state.project.basic[question.key]))}</div>` : ''}
       </div>`;
     const input = ivDom('interviewInput');
     if (input) input.value = draft.answers[question.id] || '';
@@ -658,6 +822,16 @@ window.WB.views = window.WB.views || {};
     }
   }
 
+  /* 把信息表里的活动日期写回项目：days 是事实来源，date/start/end 是它的投影 */
+  function writeDays(wrapper, project) {
+    project.basic.days = U.normaliseDays(daysRead(wrapper));
+    U.syncSchedule(project.basic);
+    project.meta.basic.days = 'user';
+    window.WB.store.save();
+    paintBadge('badge-basic-days', 'user');
+    window.WB.renderTopbar();
+  }
+
   function mount() {
     const panel = $('#manifestPanel');
     if (panel.dataset.mounted) return;
@@ -669,6 +843,8 @@ window.WB.views = window.WB.views || {};
       if (!el || !state().project) return;
       const key = el.dataset.basic;
       const field = BASIC_FIELDS.find((f) => f.key === key);
+      /* 活动日期是整块控件：逐行读结构写回 days，再把 date/start/end 投影出来 */
+      if (field?.type === 'days') { writeDays(el, state().project); return; }
       const raw = el.value;
       const asNumber = field?.type === 'number' && raw !== '' ? Number(raw) : null;
       state().project.basic[key] = Number.isFinite(asNumber) ? asNumber : raw;
@@ -695,7 +871,48 @@ window.WB.views = window.WB.views || {};
     });
 
     panel.addEventListener('click', (event) => {
+      /* 活动日期增删：读当前行 → 改一行 → 只重画这块控件，其它字段不受影响 */
+      const dayAdd = event.target.closest('[data-day-add]');
+      if (dayAdd) {
+        const wrapper = dayAdd.closest('[data-basic]');
+        if (wrapper && state().project) {
+          const days = daysRead(wrapper);
+          days.push('');
+          daysRepaint(wrapper, days);
+          writeDays(wrapper, state().project);
+          wrapper.querySelector('.day-row:last-child .day-date')?.focus();
+        }
+        return;
+      }
+      const dayDel = event.target.closest('[data-day-del]');
+      if (dayDel) {
+        const wrapper = dayDel.closest('[data-basic]');
+        const row = dayDel.closest('.day-row');
+        if (wrapper && row && state().project) {
+          const days = daysRead(wrapper);
+          days.splice(Number(row.dataset.dayRow) || 0, 1);
+          daysRepaint(wrapper, days.length ? days : ['']);
+          writeDays(wrapper, state().project);
+        }
+        return;
+      }
       if (event.target.closest('[data-skill-import]')) { skillOpen(); return; }
+      const editOutputBtn = event.target.closest('[data-output-edit]');
+      if (editOutputBtn) {
+        /* 卡片是 <label>：不拦下来，点「编辑」会顺手把复选框也切了 */
+        event.preventDefault();
+        event.stopPropagation();
+        outputEditOpen(editOutputBtn.dataset.outputEdit);
+        return;
+      }
+      const openMaterial = event.target.closest('[data-output-open]');
+      if (openMaterial) {
+        /* 卡片是 <label>：不拦下来，点「查看」会顺手把复选框也切了 */
+        event.preventDefault();
+        event.stopPropagation();
+        window.WB.gotoTarget?.({ view: 'material', openMaterial: openMaterial.dataset.outputOpen });
+        return;
+      }
       const inlineRemove = event.target.closest('[data-skill-remove-inline]');
       if (inlineRemove) {
         /* 卡片本身是 <label>：不拦下来，点 × 会顺手把复选框也切了 */
@@ -739,8 +956,25 @@ window.WB.views = window.WB.views || {};
         if (remove) skillRemove(remove.dataset.skillRemove);
       });
     }
+    /* ── 产出编辑弹窗（事件委托在弹窗根节点上，只绑一次）── */
+    const editBox = document.getElementById('outputEdit');
+    if (editBox) {
+      editDom('outputEditPhase').innerHTML = PHASES
+        .map((phase) => `<option value="${phase.value}">${escapeHtml(phase.label)}</option>`).join('');
+      editDom('outputEditKind').innerHTML = window.WB.catalog.KINDS
+        .map((kind) => `<option value="${kind}">${escapeHtml(KIND_LABEL[kind] || kind)}</option>`).join('');
+      editBox.addEventListener('click', (event) => {
+        if (event.target.closest('.close-output-edit') || event.target.closest('#outputEditClose')) { outputEditClose(); return; }
+        if (event.target.closest('#outputEditExport')) { outputEditExport(); return; }
+        if (event.target.closest('#outputEditSave')) { outputEditSave(); return; }
+        /* 点弹窗外的遮罩空白处也关掉 */
+        if (event.target === editBox) outputEditClose();
+      });
+    }
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && document.getElementById('skillImport')?.classList.contains('is-open')) skillClose();
+      if (event.key !== 'Escape') return;
+      if (document.getElementById('skillImport')?.classList.contains('is-open')) skillClose();
+      if (document.getElementById('outputEdit')?.classList.contains('is-open')) outputEditClose();
     });
 
     /* ── 问答式补全的交互（事件委托在弹窗根节点上，只绑一次）── */
@@ -748,6 +982,13 @@ window.WB.views = window.WB.views || {};
     const box = document.getElementById('interview');
     if (box) {
       box.addEventListener('input', (event) => {
+        /* 活动日期控件先认，别让它落进单值输入框的分支 */
+        const day = event.target.closest('.day-date');
+        if (day) {
+          const wrapper = day.closest('[data-interview-days]');
+          if (wrapper) storeDaysAnswer(wrapper, wrapper.dataset.interviewDays);
+          return;
+        }
         const el = event.target.closest('[data-interview-input]');
         if (!el) return;
         const draft = IV().draftOf(window.WB.store.state);
@@ -761,6 +1002,7 @@ window.WB.views = window.WB.views || {};
         session.choices[el.dataset.interviewChoice] = el.checked;
       });
       box.addEventListener('click', (event) => {
+        if (interviewDaysEdit(event)) return;
         const jump = event.target.closest('[data-interview-jump]');
         if (jump) { interviewGo(Number(jump.dataset.interviewJump) || 0); return; }
         if (event.target.closest('#interviewPrev')) { interviewStep(-1); return; }
@@ -803,6 +1045,11 @@ window.WB.views = window.WB.views || {};
     skillLibrary: skillRender,
     removeSkill: skillRemove,
     clearSkills: skillClear,
+    /* 编辑产出（内置改显示名 / 自定义改技能包）：打开 / 保存 / 关闭 / 导出单个技能包 */
+    editOutput: outputEditOpen,
+    saveOutput: outputEditSave,
+    closeOutputEdit: outputEditClose,
+    exportOutputSkill: outputEditExport,
     withTimeout,
     AI_POLISH_TIMEOUT,
     closeInterview: interviewClose,

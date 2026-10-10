@@ -18,13 +18,15 @@ window.WB = window.WB || {};
 
   /* 这些键属于「单个项目」，按项目分文件存储；其余属于全局索引。 */
   const DOC_KEYS = ['project', 'wbs', 'risks', 'riskCompliance', 'options', 'gates', 'gateMeta',
-    'materials', 'templates', 'materialTemplates', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills',
+    'materials', 'templates', 'materialTemplates', 'materialSections', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills',
     'signup', 'log'];
 
   const nowIso = () => new Date().toISOString();
 
+  /* outputNames：本项目里改过的产出显示名（产出配置的「编辑」写在这里），
+     缺省项就用技能包里的名字——换项目、导入导出都靠它还原 */
   function freshProject() {
-    return { basic: {}, outputs: {}, meta: { basic: {}, outputs: {} }, createdAt: nowIso() };
+    return { basic: {}, outputs: {}, meta: { basic: {}, outputs: {}, outputNames: {} }, createdAt: nowIso() };
   }
 
   function freshProjectDoc() {
@@ -40,6 +42,8 @@ window.WB = window.WB || {};
       materials: {},
       templates: [],
       materialTemplates: {},
+      /* 每份材料自己改过的章节表（outputKey → string[]）；没改过就按 模板 > 参考 > 内置默认 推 */
+      materialSections: {},
       /* 每份材料可挂一份参考件（往届样表）：{ name, kind, sections, fields, text, kit }
          kit 是版式套件（样式表 / 页面设置 / 页眉页脚），导出 Word 时照它排版 */
 
@@ -157,10 +161,24 @@ window.WB = window.WB || {};
     doc.project = raw.project || null;
     if (doc.project) {
       doc.project.basic ||= {};
+      /* 活动日期与活动安排是两个数组：导入的项目包可能残缺或类型不对，这里统一洗成规范结构。
+         上一版把时间放在 basic.schedule 里，这里顺手搬成 days + agenda，旧数据不丢。 */
+      const basic = doc.project.basic;
+      const util = window.WB.util;
+      const legacy = util.daysOf({ schedule: basic.schedule });
+      const legacyAgenda = Array.isArray(basic.schedule) ? basic.schedule : [];
+      basic.days = util.normaliseDays([...(Array.isArray(basic.days) ? basic.days : []), ...legacy]);
+      basic.agenda = util.normaliseAgenda([...(Array.isArray(basic.agenda) ? basic.agenda : []), ...legacyAgenda]);
+      if (!basic.days.length && String(basic.date || '').trim()) basic.days = util.normaliseDays([basic.date]);
+      delete basic.schedule;
+      util.syncSchedule(basic);
       doc.project.outputs ||= {};
       doc.project.meta ||= { basic: {}, outputs: {} };
       doc.project.meta.basic ||= {};
       doc.project.meta.outputs ||= {};
+      doc.project.meta.outputNames = (doc.project.meta.outputNames && typeof doc.project.meta.outputNames === 'object')
+        ? Object.fromEntries(Object.entries(doc.project.meta.outputNames).map(([key, value]) => [key, text(value)]).filter(([, value]) => value))
+        : {};
     }
     doc.wbs = (raw.wbs || []).map(normaliseRow);
     doc.risks = (raw.risks || []).map(normaliseRisk);
@@ -168,6 +186,7 @@ window.WB = window.WB || {};
     doc.materials = raw.materials || {};
     doc.templates = raw.templates || [];
     doc.materialTemplates = raw.materialTemplates || {};
+    doc.materialSections = raw.materialSections && typeof raw.materialSections === 'object' ? raw.materialSections : {};
     doc.references = raw.references && typeof raw.references === 'object' ? raw.references : {};
     doc.fillDrafts = raw.fillDrafts && typeof raw.fillDrafts === 'object' ? raw.fillDrafts : {};
     doc.options = { ...freshProjectDoc().options, ...(raw.options || {}) };
@@ -194,6 +213,8 @@ window.WB = window.WB || {};
 
   function applyDoc(doc) {
     for (const key of DOC_KEYS) state[key] = doc[key];
+    /* 项目一换，产出名也要跟着换：显示名按项目存，而产出清单是共享的 */
+    window.WB.catalog?.applyNames(state.project);
   }
 
   function summarise(index) {
@@ -256,6 +277,7 @@ window.WB = window.WB || {};
       name: text(basic.name) || '未命名活动',
       type: text(basic.type) || '',
       date: text(basic.date) || '',
+      schedule: window.WB.util.scheduleLabel(basic),
       venue: text(basic.venue) || '',
       createdAt: doc.project?.createdAt || nowIso(),
       updatedAt: nowIso(),
@@ -311,6 +333,8 @@ window.WB = window.WB || {};
   /* load() 阶段 state 还没赋值，用不上 save()，这里提供纯函数版本 */
   function applyDocTo(target, doc) {
     for (const key of DOC_KEYS) target[key] = doc[key];
+    /* 载入阶段 catalog 可能还没就位（模块顺序：store 先于 skills），所以用可选调用 */
+    window.WB.catalog?.applyNames(target.project);
   }
 
   function indexPayloadOf(source) {
@@ -320,6 +344,7 @@ window.WB = window.WB || {};
       entry.name = text(basic.name) || entry.name;
       entry.type = text(basic.type) || '';
       entry.date = text(basic.date) || '';
+      entry.schedule = window.WB.util.scheduleLabel(basic);
       entry.venue = text(basic.venue) || '';
       entry.updatedAt = nowIso();
     }

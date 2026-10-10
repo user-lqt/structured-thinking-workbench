@@ -11,7 +11,7 @@ window.WB = window.WB || {};
   /* 这三项是多句话的文本区：生成时把该字段的当前内容一并交给 AI（本地成稿则并进句子），勾选写回时整段替换；其余字段只填空、绝不覆盖 */
   const COMPOSED_KEYS = ['goal', 'content', 'constraint'];
   /* AI 追问只允许落到这些字段，保证答案一定能被写回表单 */
-  const AI_KEYS = ['goal', 'content', 'constraint', 'audience', 'venueBackup', 'coOrganizer', 'approval', 'budget', 'guests', 'start', 'end'];
+  const AI_KEYS = ['goal', 'content', 'constraint', 'audience', 'venueBackup', 'coOrganizer', 'approval', 'budget', 'guests'];
 
   /* 按活动类型追问「活动内容与形式」——这才是这次活动独有的信息 */
   const TYPE_PROBES = {
@@ -41,7 +41,7 @@ window.WB = window.WB || {};
   const CORE_QUESTIONS = [
     { key: 'type', ask: '这次活动属于哪一类？', why: '类型决定后面追问哪些细节：展区？赛制？批次？' },
     { key: 'name', ask: '活动的正式名称是什么？', why: '名称要出现在所有材料与海报标题上，写错得一份份改' },
-    { key: 'date', ask: '活动在哪一天举行？', why: '日期是倒排任务和甘特图的起点' },
+    { key: 'days', ask: '活动安排在哪几天？（可多天）', why: '日期是倒排任务和甘特图的起点', hint: '每个时间段几点到几点、做什么，填完去「活动安排」排' },
     { key: 'venue', ask: '主场地在哪里？', why: '场地决定容量、用电报备与审批链路' },
     { key: 'venueBackup', ask: '雨天或场地冲突时用哪个备用地点？', why: '没有备案，下雨当天只能延期或取消' },
     { key: 'guests', ask: '预计多少人参加？（含观众、选手与工作人员）', why: '人数决定物料、座位、志愿者与预算量级' },
@@ -248,8 +248,9 @@ window.WB = window.WB || {};
       mode: 'draft',
       活动类型: text(basic.type) || '未填',
       活动名称: text(basic.name) || '未填',
-      活动日期: text(basic.date) || '未填',
-      已填信息: Object.fromEntries(Object.entries(basic).filter(([, value]) => text(value))),
+      活动日期: U.scheduleSummary(basic) || '未填',
+      活动安排: U.agendaSummary(basic) || '未填',
+      已填信息: Object.fromEntries(Object.entries(basic).filter(([, value]) => !Array.isArray(value) && text(value))),
       当前字段: question.label,
       问题: question.ask,
       用户目前写的: text(answers?.[question.id]) || '（还没写，或写了「你帮我想」）',
@@ -261,7 +262,8 @@ window.WB = window.WB || {};
   /* 只问还没有内容的字段；三类文本区即使已填写也会问，用于「重写」而不是追加 */
   function plan(state) {
     const basic = state?.project?.basic || {};
-    const filled = (key) => text(basic[key]) !== '';
+    /* 活动日期可能是多天数组，也可能只有旧的 date/start/end，统一按「有没有选日期」判断 */
+    const filled = (key) => (key === 'days' ? U.daysOf(basic).length > 0 : U.filled(basic[key]));
     const out = [];
     const push = (item) => {
       const key = item.key;
@@ -321,6 +323,24 @@ window.WB = window.WB || {};
     const rows = [];
     for (const group of groups) {
       const current = text(basic[group.key]);
+      /* 活动日期是结构化数组：单独成稿，写回时还原成日期行，不走「纯文本」那条路 */
+      if (group.key === 'days') {
+        const list = U.parseDays(group.values.join('；'));
+        if (!list.length) continue;
+        const summary = U.scheduleSummary({ days: list });
+        rows.push({
+          key: 'days',
+          label: group.label || FIELD.days?.label || '活动日期',
+          proposed: summary,
+          values: [summary],
+          days: list,
+          current: U.scheduleSummary(basic),
+          filled: U.daysOf(basic).length > 0,
+          appendable: false,
+          source: group.sources.every((item) => item === 'ai') ? 'ai' : 'user'
+        });
+        continue;
+      }
       /* 已填的文本区先把原话并进成稿：写回是整段替换，成稿里必须留住原来的信息 */
       const proposed = COMPOSED_KEYS.includes(group.key)
         ? composeParts(group.key, current ? [current, ...group.values] : group.values)
@@ -362,6 +382,16 @@ window.WB = window.WB || {};
     const skipped = [];
     for (const row of rows) {
       if (!choices[row.key] || !row.proposed) { skipped.push(row.key); continue; }
+      /* 活动日期是结构化数组：整行写回 days，再投影出 date/start/end */
+      if (row.key === 'days') {
+        const list = Array.isArray(row.days) ? row.days : [];
+        if (!list.length) { skipped.push(row.key); continue; }
+        project.basic.days = U.normaliseDays(list);
+        U.syncSchedule(project.basic);
+        project.meta.basic.days = row.source === 'ai' ? 'ai' : 'user';
+        (row.filled ? replaced : applied).push(row.key);
+        continue;
+      }
       if (row.filled) {
         if (!row.appendable) { skipped.push(row.key); continue; }
         /* 整段替换：清掉原有文本，用这条成稿覆盖（AI 已按原文重写，本地成稿也已并入原话） */
@@ -429,8 +459,9 @@ window.WB = window.WB || {};
       mode: 'ask',
       活动类型: text(basic.type) || '未填',
       活动名称: text(basic.name) || '未填',
-      活动日期: text(basic.date) || '未填',
-      已填信息: Object.fromEntries(Object.entries(basic).filter(([, value]) => text(value))),
+      活动日期: U.scheduleSummary(basic) || '未填',
+      活动安排: U.agendaSummary(basic) || '未填',
+      已填信息: Object.fromEntries(Object.entries(basic).filter(([, value]) => !Array.isArray(value) && text(value))),
       当前追问清单: questions.map((item) => ({ 字段: item.label, 问题: item.ask })),
       仍未回答: questions.filter((item) => !text(answers[item.id])).map((item) => item.ask),
       允许的字段: AI_KEYS

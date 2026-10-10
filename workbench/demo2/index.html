@@ -103,6 +103,53 @@
       </div>
     </div>
 
+    <div id="outputEdit" class="wizard output-edit-modal" role="dialog" aria-modal="true" aria-labelledby="outputEditTitle">
+      <div class="wizard-panel output-edit-panel">
+        <div class="wizard-head">
+          <span class="brand-mark small">改</span>
+          <div>
+            <div class="eyebrow" id="outputEditEyebrow">产出配置 · 编辑产出</div>
+            <h1 id="outputEditTitle">编辑产出</h1>
+            <p id="outputEditSubtitle">改完保存，产出配置、过程材料与导出都会用新的名字与章节。</p>
+          </div>
+          <button type="button" class="quiet-icon close-output-edit" aria-label="关闭">×</button>
+        </div>
+        <div class="output-edit-body">
+          <label class="output-edit-field" for="outputEditName">
+            <span>显示名称<small>产出配置、过程材料与导出里显示的名字</small></span>
+            <input type="text" id="outputEditName" maxlength="40" autocomplete="off" />
+          </label>
+          <div class="output-edit-pair">
+            <label class="output-edit-field" for="outputEditPhase">
+              <span>所属阶段<small>决定它归在哪个阶段</small></span>
+              <select id="outputEditPhase"></select>
+            </label>
+            <label class="output-edit-field" for="outputEditKind">
+              <span>产出类型<small>决定主交付格式</small></span>
+              <select id="outputEditKind"></select>
+            </label>
+          </div>
+          <label class="output-edit-field" for="outputEditSections">
+            <span>章节<small>一行一条，至少 2 条（图形类 1 条）</small></span>
+            <textarea id="outputEditSections" rows="6" spellcheck="false" placeholder="一、活动风险提示&#10;二、着装与物品要求"></textarea>
+          </label>
+          <label class="output-edit-field" for="outputEditRules">
+            <span>生成要求<small>写给 AI 的口径；留空就按章节给通用要求</small></span>
+            <textarea id="outputEditRules" rows="4" spellcheck="false" placeholder="选填：语气、篇幅、必须写到的要点、事实边界"></textarea>
+          </label>
+          <div id="outputEditNote" class="output-edit-note"></div>
+        </div>
+        <div class="wizard-foot">
+          <span id="outputEditHint" class="wizard-hint">内置产出只能改显示名；自定义产出的名称、阶段、类型、章节都能改。</span>
+          <div class="wizard-actions">
+            <button type="button" class="button button-ghost" id="outputEditExport">导出技能包</button>
+            <button type="button" class="button button-ghost" id="outputEditClose">取消</button>
+            <button type="button" class="button button-primary" id="outputEditSave">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="shell">
       <header class="topbar">
         <div class="topbar-left">
@@ -158,6 +205,8 @@
           <div id="outputSection" class="card"></div>
           <div id="manifestNotes"></div>
         </section>
+
+        <section class="panel hidden" id="agendaPanel"></section>
 
         <section class="panel hidden" id="tasksPanel">
           <div class="panel-head">
@@ -255,6 +304,7 @@
             <div>
               <h2>过程材料</h2>
               <p>每个产出对应一个技能包。有学校模板或往届样表就上传（点按钮，或把文件直接拖到卡片上），生成时会逐字对齐模板章节与参考的栏目字段。</p>
+              <p>生成后的材料就在下面的卡片里改：点开任意一份即可在线编辑（正文与表格都能直接改），改完再导出 Word / Excel / Markdown。</p>
               <p id="materialSummary" class="skill-summary"></p>
             </div>
             <div class="panel-actions">
@@ -329,7 +379,8 @@
     <script src="./views/projects.js"></script>
     <script src="./views/overview.js"></script>
     <script src="./views/manifest.js"></script>
-    <script src="./views/tasks.js"></script>
+    <script src="./views/agenda.js"></script>
+  <script src="./views/tasks.js"></script>
     <script src="./views/decision.js"></script>
     <script src="./views/risk.js"></script>
     <script src="./views/resources.js"></script>

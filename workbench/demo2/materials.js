@@ -83,7 +83,7 @@ window.SKILLS.materials = {
     kind: 'table',
     sections: [
       '一、报名须知',
-      '二、报名表单字段',
+      '二、报名信息项',
       '三、报名统计口径',
       '四、截止与确认流程'
     ]
@@ -213,5 +213,56 @@ window.SKILLS.materials = {
       '三、影像与素材归档清单',
       '四、移交与保管要求'
     ]
+  }
+};
+
+
+/* ── 章节形式：哪些章节写成 Markdown 表格 ──
+   没列到的章节一律写成正文段落（可带列表）。
+   判断标准只有一条：这一章本身是不是一张清单 / 明细 / 登记表。
+   须知、说明、规则、口径、流程、职责这类内容写成表格会很难读，一律走正文。 */
+window.SKILLS.materialForms = {
+  'activity-application': {
+    '一、活动基本信息': 'table',
+    '三、经费预算概要': 'table',
+    '五、审批流转记录': 'table'
+  },
+  'budget-sheet': {
+    '一、预算总览': 'table',
+    '二、分项预算明细': 'table',
+    '三、经费来源与到位计划': 'table'
+  },
+  'staffing-plan': {
+    '二、岗位职责表': 'table'
+  },
+  'signup-form': {
+    '二、报名信息项': 'table'
+  },
+  'material-list': {
+    '二、采购与制作清单': 'table',
+    '三、领用与归还登记': 'table',
+    '四、到场清点检查表': 'table'
+  },
+  'shift-table': {
+    '二、分时段排班表': 'table'
+  },
+  'attendance': {
+    '二、观众签到表': 'table',
+    '三、工作人员签到表': 'table',
+    '四、签到统计汇总': 'table'
+  },
+  'live-log': {
+    '二、时段记录表': 'table',
+    '三、异常与处置记录': 'table',
+    '四、影像素材登记': 'table'
+  },
+  'settlement': {
+    '一、决算总览': 'table',
+    '二、分项决算明细': 'table',
+    '四、报销与凭证清单': 'table'
+  },
+  'archive-list': {
+    '二、文档类归档清单': 'table',
+    '三、影像与素材归档清单': 'table'
   }
 };

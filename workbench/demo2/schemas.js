@@ -14,9 +14,7 @@ window.SKILLS = {
         fields: [
           { key: 'type', label: '活动类型', type: 'enum', required: true, options: ['科技文化节', '运动会', '迎新系列', '竞赛选拔', '其他'] },
           { key: 'name', label: '活动名称', type: 'text', required: true, placeholder: '如：2026 校园科技文化节' },
-          { key: 'date', label: '活动日期', type: 'date', required: true },
-          { key: 'start', label: '开始时间', type: 'time' },
-          { key: 'end', label: '结束时间', type: 'time' },
+          { key: 'days', label: '活动日期', type: 'days', required: true, hint: '只选哪天办，可多天；每个时间段几点到几点、做什么，去「活动安排」填。倒计时与甘特按第一天排' },
           { key: 'venue', label: '活动地点', type: 'text', placeholder: '如：科创中心报告厅' },
           { key: 'venueBackup', label: '备用地点', type: 'text', placeholder: '雨天 / 场地冲突时的替代场地' },
           { key: 'guests', label: '预计人数', type: 'number', hint: '含观众、选手与工作人员' },

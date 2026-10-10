@@ -81,7 +81,7 @@ globalThis.window.clearInterval = noop;
 const MODULES = [
   'schemas.js', 'materials.js',
   'core/util.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
-  'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/tasks.js', 'views/decision.js',
+  'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/agenda.js', 'views/tasks.js', 'views/decision.js',
   'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
 ];
@@ -117,8 +117,53 @@ const RISK = window.SKILLS.risk;
 const GATES = window.SKILLS.gates;
 const DECISION = window.SKILLS.decision;
 
-check('项目信息表-基本信息字段数 = 16', U.BASIC_FIELDS.length === 16, `实际 ${U.BASIC_FIELDS.length}`);
+check('项目信息表-基本信息字段数 = 14', U.BASIC_FIELDS.length === 14, `实际 ${U.BASIC_FIELDS.length}`);
 check('项目信息表-必填字段存在', U.BASIC_FIELDS.filter((f) => f.required).length >= 3);
+check('项目信息表-活动日期是可选多天的 days 字段',
+  U.BASIC_FIELDS.some((field) => field.key === 'days' && field.type === 'days' && field.required));
+check('项目信息表-日期与起止时间不再是独立字段（由活动日期与活动安排投影出来）',
+  !U.BASIC_FIELDS.some((field) => ['date', 'start', 'end', 'schedule'].includes(field.key)));
+
+/* ── 2b. 活动日期 + 活动安排：days/agenda 是事实来源，date/start/end 是投影 ── */
+{
+  const days = ['2026-11-15', '2026-11-14', '2026-11-14', 'x'];
+  check('活动日期只留合法日期、去重并升序',
+    U.daysOf({ days }).join('|') === '2026-11-14|2026-11-15', U.daysOf({ days }).join('|'));
+  const agenda = [
+    { date: '2026-11-14', start: '09:00', end: '12:00', title: '开幕式' },
+    { date: '2026-11-14', start: '14:00', end: '17:00', title: '' },
+    { date: '2026-11-15', start: '08:30', end: '12:00', title: '决赛' }
+  ];
+  const basic = { days: ['2026-11-14', '2026-11-15'], agenda: agenda.map((row) => ({ ...row })) };
+  U.syncSchedule(basic);
+  check('投影出首日日期、最早开始与最晚结束',
+    basic.date === '2026-11-14' && basic.start === '08:30' && basic.end === '17:00', JSON.stringify(basic));
+  check('只选日期时摘要是一句话日期区间', U.scheduleSummary(basic) === '11/14–11/15（共 2 天）', U.scheduleSummary(basic));
+  check('单日摘要就是那一天', U.scheduleSummary({ days: ['2026-11-14'] }) === '11/14', U.scheduleSummary({ days: ['2026-11-14'] }));
+  check('活动安排摘要写出每个时间段与内容',
+    U.agendaSummary(basic) === '11/14 09:00–12:00 开幕式；14:00–17:00；11/15 08:30–12:00 决赛', U.agendaSummary(basic));
+  check('导出 Word 的活动时间写出每一天与时间段',
+    U.scheduleDocText(basic) === '2026年11月14日 09:00—12:00 开幕式；14:00—17:00；2026年11月15日 08:30—12:00 决赛',
+    U.scheduleDocText(basic));
+  check('没有时间段时 Word 只写日期区间',
+    U.scheduleDocText({ days: ['2026-11-14', '2026-11-16'] }) === '2026年11月14日—2026年11月16日（共 2 天）',
+    U.scheduleDocText({ days: ['2026-11-14', '2026-11-16'] }));
+  check('只填日期的活动安排行不会被丢掉', U.normaliseAgenda([{ date: '2026-11-14' }]).length === 1);
+  check('日期文本往返无损（访谈答案靠它保存）',
+    JSON.stringify(U.parseDays(U.daysText(['2026-11-14', '2026-11-15']))) === JSON.stringify(['2026-11-14', '2026-11-15']),
+    U.daysText(['2026-11-14', '2026-11-15']));
+  check('旧项目（只有 date/start/end）自动当单日',
+    JSON.stringify(U.daysOf({ date: '2026-05-18', start: '09:00', end: '11:00' })) === JSON.stringify(['2026-05-18']));
+  check('上一版的 schedule 数据读成日期 + 时间段',
+    U.daysOf({ schedule: [{ date: '2026-11-14' }, { date: '2026-11-15' }] }).length === 2
+    && U.agendaOf({ schedule: [{ date: '2026-11-14', start: '09:00', end: '17:00' }] })[0].start === '09:00');
+  check('顶栏/卡片用的一行式日期：多天给区间与天数',
+    U.scheduleLabel(basic) === '11/14–11/15（共 2 天）', U.scheduleLabel(basic));
+  const cleared = { days: [], agenda: [], date: '2026-05-18', start: '09:00', end: '11:00' };
+  U.syncSchedule(cleared);
+  check('日期与安排清空后投影字段一并清掉（不留半截时间）',
+    cleared.date === '' && cleared.start === '' && cleared.end === '');
+}
 check('产出清单项数 = 21', U.OUTPUT_ITEMS.length === 21, `实际 ${U.OUTPUT_ITEMS.length}`);
 check('任务分解列数 = 11', WBS.columns.length === 11, `实际 ${WBS.columns.length}`);
 check('阶段数为 4', WBS.phases.length === 4);
@@ -149,6 +194,92 @@ const structItems = U.OUTPUT_ITEMS.filter((item) => item.kind === 'structure');
 check('structure 类产出有对应视图承接', structItems.every((item) => item.skill === 'decision-matrix'));
 const outputsWithoutPhase = U.OUTPUT_ITEMS.filter((item) => !U.PHASE_ORDER[item.phase] && U.PHASE_ORDER[item.phase] !== 0);
 check('每个产出都归属到一个阶段', outputsWithoutPhase.length === 0, outputsWithoutPhase.map((i) => i.key).join(', '));
+/* 章节形式：materialForms 只标「这一章是表格」，其余章节默认写正文；标错位置会静默失效，所以这里盯住 */
+const materialForms = window.SKILLS.materialForms || {};
+const formEntries = Object.entries(materialForms);
+const formOrphans = formEntries.flatMap(([skill, map]) => Object.keys(map)
+  .filter((heading) => !(materials[skill]?.sections || []).includes(heading)).map((heading) => `${skill}:${heading}`));
+check('materialForms 指定的章节在材料里都能找到', formOrphans.length === 0, formOrphans.join(', '));
+const formBadValues = formEntries.flatMap(([skill, map]) => Object.entries(map)
+  .filter(([, form]) => form !== 'table').map(([heading, form]) => `${skill}:${heading}=${form}`));
+check('materialForms 只标 table（其余章节默认正文）', formBadValues.length === 0, formBadValues.join(', '));
+const formMisplaced = formEntries.flatMap(([skill, map]) => Object.keys(map)
+  .filter((heading) => /须知|说明|口径|流程|规则|概述|范围|机制/.test(heading)).map((heading) => `${skill}:${heading}`));
+check('说明 / 流程 / 口径类章节没有被标成表格', formMisplaced.length === 0, formMisplaced.join(', '));
+/* 视图侧：真正发出去的那份额外形式要跟 materialForms 对上（材料视图内部函数，导出后可直接问） */
+{
+  const prevProject = store.state.project;
+  store.state.project = store.freshProject();
+  store.state.materialTemplates = {};
+  store.state.references = {};
+  const chosen = window.WB.views.material.chosenForms;
+  const signup = chosen('signup');
+  const application = chosen('application');
+  check('过程材料：报名表只把「报名信息项」标成表格',
+    JSON.stringify(signup) === JSON.stringify({ '二、报名信息项': 'table' }), JSON.stringify(signup));
+  check('过程材料：申报表只把基本信息 / 预算 / 审批标成表格',
+    Object.keys(application).join('|') === '一、活动基本信息|三、经费预算概要|五、审批流转记录', Object.keys(application).join('|'));
+  check('过程材料：须知 / 概要 / 保障这类章节不在表格名单里',
+    !Object.keys(application).some((h) => /须知|保障|流程|说明/.test(h)), Object.keys(application).join('|'));
+  store.state.project = prevProject;
+}
+
+/* ── 章节可增删：state.materialSections 是唯一入口，已生成的正文跟着重排 ── */
+{
+  const prevProject = store.state.project;
+  const prevMaterials = store.state.materials;
+  const prevSections = store.state.materialSections;
+  store.state.project = store.freshProject();
+  store.state.materials = {};
+  store.state.materialSections = {};
+  const V = window.WB.views.material;
+  const DEFAULT_SIGNUP = '一、报名须知|二、报名信息项|三、报名统计口径|四、截止与确认流程';
+
+  check('章节默认取内置章节', V.sectionListOf('signup').join('|') === DEFAULT_SIGNUP, V.sectionListOf('signup').join('|'));
+
+  V.setSections('signup', V.sectionListOf('signup').filter((heading) => heading !== '四、截止与确认流程'));
+  check('删掉「四、截止与确认流程」后章节表少了它',
+    V.sectionListOf('signup').join('|') === '一、报名须知|二、报名信息项|三、报名统计口径', V.sectionListOf('signup').join('|'));
+
+  store.state.materials.signup = {
+    title: 'T',
+    sections: [
+      { heading: '一、报名须知', body: '须知正文' },
+      { heading: '二、报名信息项', body: '| 信息项 |' },
+      { heading: '四、截止与确认流程', body: '流程正文' }
+    ]
+  };
+  V.syncSectionsToDoc('signup');
+  const pruned = store.state.materials.signup.sections;
+  check('已生成的正文按新章节重排：删掉的那章不再出现',
+    pruned.length === 3 && !pruned.some((section) => section.heading === '四、截止与确认流程'),
+    pruned.map((section) => section.heading).join('|'));
+  check('同名的章节正文原样保留',
+    pruned[0].body === '须知正文' && pruned[1].body === '| 信息项 |', JSON.stringify(pruned.map((section) => section.body)));
+  check('新顶上来的章节先写「待补充」', pruned[2].body === '待补充', pruned[2].body);
+
+  V.setSections('signup', ['一、报名须知', '', '二、报名信息项']);
+  check('还没命名的空章节留在编辑面板里、但不进正文',
+    V.sectionListOf('signup').length === 3 && store.state.materials.signup.sections.length === 2,
+    `${V.sectionListOf('signup').length}/${store.state.materials.signup.sections.length}`);
+
+  V.setSections('signup', ['一、报名须知', '二、报名信息项', '三、报名统计口径', '四、截止与确认流程']);
+  check('章节改回内置默认时不留自定义记录', !store.state.materialSections.signup,
+    JSON.stringify(store.state.materialSections));
+
+  V.setSections('signup', ['一、报名须知', '  二、报名信息项  ']);
+  check('章节标题写入前会去掉多余空白', V.sectionListOf('signup')[1] === '二、报名信息项', JSON.stringify(V.sectionListOf('signup')));
+
+  store.state.project = prevProject;
+  store.state.materials = prevMaterials;
+  store.state.materialSections = prevSections;
+}
+const contractPlain = window.WB.ai.documentContract(['一、报名须知']);
+const contractTable = window.WB.ai.documentContract(['一、报名须知'], { '一、报名须知': 'table' });
+const contractUnmarked = window.WB.ai.documentContract(['一、报名须知'], { '二、别的章节': 'table' });
+check('契约默认把章节写成正文段落', contractPlain.includes('正文段落') && !contractPlain.includes('管道表格'), contractPlain.slice(0, 90));
+check('契约按章节形式指定表格', contractTable.includes('管道表格') && !contractTable.includes('本章不要用表格'), contractTable.slice(0, 90));
+check('契约不该把没标过的章节当成表格', contractUnmarked.includes('正文段落'), contractUnmarked.slice(0, 90));
 
 /* 交付格式：技能包要声明主交付格式，且与产出类型自洽 */
 const DELIVERABLE_BY_KIND = { table: 'excel', document: 'word', graphic: 'svg' };
@@ -273,6 +404,136 @@ check('技能库：一键清空只收自定义的（内置 21 项不受影响，
   && !window.SKILLS.materials['safety-brief'] && !window.SKILLS.materials['badge-art']);
 store.state.project = savedProject;
 window.WB.views.manifest.render();
+
+/* ── 3d. 产出可编辑：内置改显示名（按项目存），自定义改技能包本身 ── */
+{
+  if (!store.state.project) store.state.project = store.freshProject();
+  const project = store.state.project;
+  check('产出可编辑：内置产出改显示名后刷回产出配置',
+    CAT.rename('proposal', '活动策划书（校本版）', project) === true
+    && U.OUTPUT_ITEMS.find((item) => item.key === 'proposal').label === '活动策划书（校本版）'
+    && project.meta.outputNames.proposal === '活动策划书（校本版）');
+  check('产出可编辑：内置产出的阶段与章节仍随技能包走（改不了也不该被改）',
+    U.OUTPUT_ITEMS.find((item) => item.key === 'proposal').phase === 'plan'
+    && window.SKILLS.materials['activity-proposal'].sections.length > 0);
+  window.WB.views.manifest.render();
+  check('产出可编辑：产出配置卡片显示新名字',
+    document.querySelector('#outputSection').innerHTML.includes('活动策划书（校本版）'));
+  CAT.rename('proposal', '', project);
+  check('产出可编辑：名字清空 = 恢复技能包里的默认名',
+    U.OUTPUT_ITEMS.find((item) => item.key === 'proposal').label === '活动策划书'
+    && !('proposal' in project.meta.outputNames));
+
+  CAT.add(SKILL_SAMPLE);
+  const updated = CAT.update('safety-brief', {
+    title: '参与者安全须知（含急救）',
+    phase: 'execute',
+    kind: 'table',
+    sections: ['一、风险提示', '二、急救流程'],
+    rulesBody: '只写事实，缺的一律写「待确认」。'
+  });
+  const customItem = U.OUTPUT_ITEMS.find((item) => item.key === 'safetyBrief');
+  check('产出可编辑：自定义技能包改标题 / 阶段 / 类型 / 章节都生效',
+    updated.ok && customItem.label === '参与者安全须知（含急救）'
+    && customItem.phase === 'execute' && customItem.kind === 'table'
+    && window.SKILLS.materials['safety-brief'].sections.join('|') === '一、风险提示|二、急救流程',
+    JSON.stringify({ ok: updated.ok, errors: updated.errors, item: customItem }));
+  check('产出可编辑：生成要求与标题写回技能包原文（导出拿到的是同一份）',
+    CAT.find('safety-brief').source.includes('title: 参与者安全须知（含急救）')
+    && CAT.find('safety-brief').source.includes('只写事实')
+    && CAT.find('safety-brief').rulesBody.includes('只写事实'));
+  check('产出可编辑：技能 id 与产出 key 不动（项目里勾的还是它）',
+    CAT.find('safety-brief').id === 'safety-brief' && CAT.find('safety-brief').key === 'safetyBrief'
+    && updated.skill.id === 'safety-brief');
+  CAT.remove('safety-brief');
+  check('产出可编辑：删掉自定义技能后产出配置与章节定义一起收掉',
+    U.OUTPUT_ITEMS.length === 21 && !window.SKILLS.materials['safety-brief']);
+}
+
+/* 产出配置里的「查看」：这份材料已经生成，就该能从产出配置一步跳到它 */
+{
+  const prevProject = store.state.project;
+  const prevMaterials = store.state.materials;
+  const prevView = store.state.view;
+  const prevOpen = store.state.ui.openMaterial;
+  store.state.project = store.freshProject();
+  store.state.project.outputs.budgetSheet = true;
+  store.state.materials = {
+    budgetSheet: { title: '预算表', sections: [{ heading: '一、预算总览', body: '| 科目 | 金额 |\n| --- | ---: |\n| 场地 | 6000 |' }] }
+  };
+  store.state.ui.openMaterial = null;
+  window.WB.views.manifest.render();
+  const outputHtml = document.querySelector('#outputSection').innerHTML;
+  check('产出配置：已生成的产出带「查看」入口', outputHtml.includes('data-output-open="budgetSheet"'));
+  check('产出配置：还没生成的产出不给「查看」', !outputHtml.includes('data-output-open="proposal"'));
+  check('产出配置：加了「查看」也不影响卡片与勾选框',
+    outputHtml.includes('data-output-item="budgetSheet"') && outputHtml.includes('data-output="budgetSheet"'));
+  check('产出配置：显著提醒「材料在过程材料里生成与修改」，并给出直达入口',
+    outputHtml.includes('output-hint') && outputHtml.includes('去「过程材料」')
+    && outputHtml.includes('data-goto-view="material"'));
+  window.WB.gotoTarget({ view: 'material', openMaterial: 'budgetSheet' });
+  check('产出配置的「查看」：跳到「过程材料」并展开那一份',
+    store.state.view === 'material' && store.state.ui.openMaterial === 'budgetSheet',
+    `${store.state.view}/${store.state.ui.openMaterial}`);
+  store.state.project = prevProject;
+  store.state.materials = prevMaterials;
+  store.state.view = prevView;
+  store.state.ui.openMaterial = prevOpen;
+  window.WB.views.manifest.render();
+}
+
+/* 活动日期：信息表里是「一天一行」的日期控件；投影出的 date/start/end 供倒计时、甘特与导出复用 */
+{
+  const prevProject = store.state.project;
+  store.state.project = store.freshProject();
+  store.state.project.basic = {
+    name: '多天活动',
+    days: ['2026-11-14', '2026-11-15'],
+    agenda: [{ date: '2026-11-14', start: '09:00', end: '17:00', title: '开幕式' }]
+  };
+  U.syncSchedule(store.state.project.basic);
+  window.WB.views.manifest.render();
+  const basicHtml = document.querySelector('#basicSection').innerHTML;
+  check('信息表：活动日期渲染成一天一行的控件，两天各一行，并带「＋ 添加一天」',
+    basicHtml.includes('data-basic="days"')
+    && (basicHtml.match(/data-day-row=/g) || []).length === 2
+    && basicHtml.includes('data-day-add')
+    && basicHtml.includes('value="2026-11-15"'));
+  check('信息表：每一天都带删除键', (basicHtml.match(/data-day-del/g) || []).length === 2);
+  check('信息表：投影出的首日日期就是倒计时与甘特的基准日',
+    store.state.project.basic.date === '2026-11-14', store.state.project.basic.date);
+  check('信息表：最早开始与最晚结束来自活动安排',
+    store.state.project.basic.start === '09:00' && store.state.project.basic.end === '17:00',
+    `${store.state.project.basic.start}-${store.state.project.basic.end}`);
+  window.WB.views.agenda.render();
+  const agendaHtml = document.querySelector('#agendaPanel').innerHTML;
+  check('活动安排：按天分块，两天各一块，并带「＋ 添加时间段」',
+    (agendaHtml.match(/data-agenda-day=/g) || []).length === 2 && agendaHtml.includes('data-agenda-add'));
+  check('活动安排：已排的时间段回填出起止与内容框',
+    agendaHtml.includes('agenda-start') && agendaHtml.includes('agenda-title') && agendaHtml.includes('开幕式'));
+  store.state.project = prevProject;
+  window.WB.views.manifest.render();
+}
+check('向导：活动日期是「一天一行」的可增删控件，不是单个日期框',
+  document.getElementById('wizardFields').innerHTML.includes('data-day-add'));
+
+/* 批量生成跑完后，提示里给一个可点的「查看材料」，点一下就跳到最后生成的那份 */
+{
+  let jumped = '';
+  const createElement = document.createElement;
+  let actionButton = null;
+  document.createElement = (tag) => {
+    const node = createElement(tag);
+    if (tag === 'button') actionButton = node;
+    return node;
+  };
+  window.WB.toastAction('批量生成完成：成功 3/3 份', '查看材料', () => { jumped = 'proposal'; });
+  document.createElement = createElement;
+  check('批量生成提示带可点动作（toastAction 已导出并挂上按钮）',
+    typeof window.WB.toastAction === 'function' && Boolean(actionButton) && actionButton.textContent === '查看材料');
+  actionButton.emit('click');
+  check('点提示里的「查看材料」会执行跳转', jumped === 'proposal', jumped);
+}
 
 /* ── 3b. 身份、资源台账与演练场景库 ─────────── */
 check('角色为组织者/成员/访客三档',
@@ -889,6 +1150,14 @@ check('数字字段仍能从文本里取出数字',
 check('util.filled 把「待确认」与空值同等看待',
   U.filled('待确认') === false && U.filled('') === false && U.filled(0) === true && U.filled('策划组') === true,
   `待确认=${U.filled('待确认')} 空=${U.filled('')} 0=${U.filled(0)} 策划组=${U.filled('策划组')}`);
+check('util.filled 对活动日期按「选了几天」判断',
+  U.filled([]) === false && U.filled(['2026-11-14']) === true);
+
+const p7 = store.freshProject();
+window.WB.ai.mergeBasic(p7, { days: '2026-11-14', schedule: '2026-11-14 09:00-17:00', date: '2026-11-14' });
+check('活动日期不交给 AI 写：收到值也不会落到 days 或 date 上',
+  p7.basic.days === undefined && p7.basic.date === undefined, JSON.stringify(p7.basic));
+check('AI 补全契约里不再出现活动日期字段', !window.WB.ai.manifestContract().includes('"days"'));
 
 /* 门禁证据：整份信息表全是占位词时，不该自动勾出任何检查点
    （曾经的假阳性：主场地「待确认」与备用方案都已登记 → 自动勾上「场地已确认」） */
@@ -907,7 +1176,7 @@ check('全占位项目没有可自动确认的检查点', ghostReview.ready === 
 
 /* ── 汇总 ──────────────────────────────── */
 /* ── 9. 视图渲染冒烟：每个视图都要能出表且不抛错 ── */
-const VIEW_IDS = ['projects', 'overview', 'manifest', 'tasks', 'decision', 'risk',
+const VIEW_IDS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk',
   'resources', 'drills', 'material', 'assets', 'signup', 'help'];
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const scriptOrder = [...html.matchAll(/src="\.\/(.+?)"/g)].map((match) => match[1]);
@@ -1171,7 +1440,11 @@ check('填写路线图：空项目时 0 完成、停在第一步，可选步骤�
   emptyGuide.done === 0 && emptyGuide.current?.id === 'basic'
   && emptyGuide.total === emptyGuide.steps.filter((step) => !step.optional).length
   && emptyGuide.steps.some((step) => step.optional));
-store.state.project.basic = { type: '科技文化节', name: '路线图测试', date: '2026-11-08' };
+store.state.project.basic = {
+  type: '科技文化节',
+  name: '路线图测试',
+  days: ['2026-11-08', '2026-11-09']
+};
 const step1Guide = guideAPI.progress(store.state);
 check('填写路线图：填上必填项后第一步自动完成、当前步前进到「勾选产出」',
   step1Guide.steps.find((step) => step.id === 'basic').status === 'done' && step1Guide.current?.id === 'outputs');
@@ -2048,6 +2321,25 @@ check('每道题都带句式字段（本地题留空，AI 追问才填）',
 check('每个问题都指向真实字段且带问法',
   ivQuestions.every((q) => Boolean(q.ask) && U.BASIC_FIELDS.some((f) => f.key === q.key)));
 
+/* 活动日期在访谈里是一个「可多天」的问题，答案能还原成日期并投影 */
+{
+  const backup = ivState.project.basic;
+  ivState.project.basic = { type: '科技文化节' };
+  const dayQuestion = IVAPI.plan(ivState).find((item) => item.key === 'days');
+  check('访谈：空白项目会问活动日期，且用一天一行的控件',
+    Boolean(dayQuestion) && dayQuestion.type === 'days' && Boolean(dayQuestion.ask));
+  const dayAnswers = { days: U.daysText(['2026-05-18', '2026-05-19']) };
+  const dayRows = IVAPI.composeDraft(ivState, [dayQuestion], dayAnswers);
+  const dayResult = IVAPI.apply(ivState, dayRows, { days: true });
+  check('访谈成稿：日期答案还原成多天并写回投影',
+    dayRows.length === 1 && dayRows[0].proposed === '5/18–5/19（共 2 天）'
+    && dayResult.applied.includes('days')
+    && ivState.project.basic.days.length === 2
+    && ivState.project.basic.date === '2026-05-18',
+    JSON.stringify({ rows: dayRows, basic: ivState.project.basic }));
+  ivState.project.basic = backup;
+}
+
 ivState.project.basic.type = '运动会';
 const ivSportQuestions = IVAPI.plan(ivState);
 check('换活动类型后追问跟着换',
@@ -2834,6 +3126,17 @@ check('起草值：按字段名对上项目信息表（带空格与括注也能�
 check('起草值：日期换成「年月日 + 时段」的写法',
   fillDraft.values[fillPick('活动时间').id] === '2026年11月8日 09:30—17:00',
   String(fillDraft.values[fillPick('活动时间').id]));
+const fillDraftMulti = DX.fillDraft(fillParsed, {
+  name: '2026 校园科技文化节',
+  days: ['2026-11-08', '2026-11-09'],
+  agenda: [
+    { date: '2026-11-08', start: '09:30', end: '17:00', title: '' },
+    { date: '2026-11-09', start: '08:30', end: '12:00', title: '' }
+  ]
+});
+check('起草值：多天活动把每一天都写进「活动时间」，且不依赖 date 投影',
+  fillDraftMulti.values[fillPick('活动时间').id] === '2026年11月8日 09:30—17:00；2026年11月9日 08:30—12:00',
+  String(fillDraftMulti.values[fillPick('活动时间').id]));
 check('起草值：没对上的一律留空（保留参考原文）',
   fillDraft.values[fillPara.id] === undefined && fillDraft.matched === 3, String(fillDraft.matched));
 

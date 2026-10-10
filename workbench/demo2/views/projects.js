@@ -50,7 +50,7 @@ window.WB.views = window.WB.views || {};
     const isActive = item.id === current.activeId;
     const percent = Number(item.percent) || 0;
     const canWrite = canManage();
-    const meta = [item.type, item.date, item.venue].filter(Boolean).join(' · ');
+    const meta = [item.type, item.schedule || item.date, item.venue].filter(Boolean).join(' · ');
     return `<article class="project-card ${isActive ? 'is-active' : ''}" data-project-card="${item.id}">
       <div class="project-card-head">
         <span class="project-type-mark">${escapeHtml((item.type || '活').slice(0, 1))}</span>

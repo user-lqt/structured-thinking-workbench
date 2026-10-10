@@ -1,0 +1,7 @@
+# 换行符约定：这两份批处理必须是 CRLF。
+# LF 行尾的 .bat 在 cmd.exe 下会被读错——中文行整行错位、">nul" 这类重定向被当成命令、
+# 多行 if ( / for ( 块直接报错退出，窗口一闪而过。
+# 仓库索引里存的是 LF，只有 core.autocrlf=true 的机器 checkout 出来才是 CRLF，
+# 队友那边（autocrlf=false / input）拿到的就是坏的，所以在这里写死，跟个人 git 配置无关。
+*.bat text eol=crlf
+*.cmd text eol=crlf

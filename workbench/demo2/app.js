@@ -5,7 +5,7 @@ window.WB = window.WB || {};
   const U = window.WB.util;
   const store = window.WB.store;
   const { $, $$, escapeHtml, BASIC_FIELDS, ROLES } = U;
-  const VIEWS = ['projects', 'overview', 'manifest', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'assets', 'signup', 'help'];
+  const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'assets', 'signup', 'help'];
 
   /* 只读放行的控件特征：筛选、分段切换、导出、打开/关闭、下载、跳转都是「看」的动作。
      其余按钮、输入框、下拉框一律视为写入，只读访客会被禁用。 */
@@ -26,6 +26,33 @@ window.WB = window.WB || {};
   }
 
   window.WB.toast = toast;
+
+  /* 带动作的提示：批量生成这类「长任务刚跑完、系统想催你去下一步」的场景，
+     只给一条不可点的文字没用，顺手塞个按钮，点一下就跳过去。 */
+  function toastAction(message, label, onAction) {
+    const el = $('#toast');
+    if (!el) return;
+    el.textContent = '';
+    const text = document.createElement('span');
+    text.textContent = message;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      el.classList.remove('is-show');
+      clearTimeout(toastTimer);
+      if (typeof onAction === 'function') onAction();
+    });
+    el.appendChild(text);
+    el.appendChild(btn);
+    el.classList.add('is-show');
+    clearTimeout(toastTimer);
+    /* 比普通提示多留一会儿，别让按钮还没点到就消失了 */
+    toastTimer = setTimeout(() => el.classList.remove('is-show'), 8000);
+  }
+
+  window.WB.toastAction = toastAction;
 
   /* ── 角色门禁 ─────────────────────────── */
 
@@ -120,7 +147,7 @@ window.WB = window.WB || {};
     const state = store.state;
     const basic = state.project?.basic || {};
     $('#projectName').textContent = basic.name || '未命名活动';
-    const meta = [basic.type, basic.date, basic.venue].filter(Boolean).join(' · ');
+    const meta = [basic.type, U.scheduleLabel(basic) || basic.date, basic.venue].filter(Boolean).join(' · ');
     const overall = window.WB.wbs.overall(state.wbs);
     const owner = state.projects.length > 1 ? ` · 共 ${state.projects.length} 个项目` : '';
     $('#projectMeta').textContent = state.project
@@ -250,7 +277,8 @@ window.WB = window.WB || {};
       drills: state.drills.length,
       material: Object.keys(state.materials).length,
       assets: state.assets.length,
-      signup: state.signup ? state.signup.records.length : 0
+      signup: state.signup ? state.signup.records.length : 0,
+      agenda: (state.project?.basic?.agenda || []).length
     };
     $('#tabs').innerHTML = VIEWS.map((id) => {
       const view = window.WB.views[id];
@@ -353,18 +381,23 @@ window.WB = window.WB || {};
   }
 
   window.WB.jumpFrom = jumpFrom;
+  /* 跳转目标也开放出去：产出配置里的「查看」等入口直接调它，不必伪造一个 DOM 元素 */
   window.WB.gotoTarget = gotoTarget;
 
   /* ── 项目向导 ─────────────────────────── */
 
   function renderWizard() {
     const container = $('#wizardFields');
+    const basic = store.state.project?.basic || {};
     container.innerHTML = BASIC_FIELDS.map((field) => {
-      const wide = field.type === 'textarea' ? ' wide' : '';
+      const wide = field.type === 'textarea' || field.type === 'days' ? ' wide' : '';
       const hint = field.hint ? `<span class="hint">${escapeHtml(field.hint)}</span>` : '';
+      const attrs = field.type === 'days'
+        ? `id="w-${field.key}" name="${field.key}" data-days-scope="wizard"`
+        : `id="w-${field.key}" name="${field.key}"`;
       return `<div class="field${wide}">
         <label for="w-${field.key}">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ''}</label>
-        ${window.WB.fieldControl(field, `id="w-${field.key}" name="${field.key}"`)}
+        ${window.WB.fieldControl(field, attrs, { days: U.daysOf(basic) })}
         ${hint}
       </div>`;
     }).join('');
@@ -373,9 +406,14 @@ window.WB = window.WB || {};
   function openWizard() {
     const basic = store.state.project?.basic || {};
     for (const field of BASIC_FIELDS) {
+      /* 活动日期是整块控件，行在渲染时已按 days 生成 */
+      if (field.type === 'days') continue;
       const el = $(`#w-${field.key}`);
       if (el) el.value = basic[field.key] ?? '';
     }
+    /* 活动日期按当前项目重画：向导只建一次，不能沿用上次打开时留下的行 */
+    const daysBox = $('#w-days');
+    if (daysBox) window.WB.daysField.repaint(daysBox, U.daysOf(basic));
     $('#wizardTitle').textContent = store.state.project ? '修改活动基本信息' : '先告诉我这次活动的基本信息';
     $('#wizard').classList.add('is-open');
     setTimeout(() => $(`#w-${BASIC_FIELDS[0].key}`)?.focus(), 60);
@@ -391,11 +429,28 @@ window.WB = window.WB || {};
   function submitWizard(event) {
     event.preventDefault();
     if (!U.canOperate()) { toast('只读访客不能修改项目信息'); return; }
+    /* 活动日期是必填：至少要选一天 */
+    const needDays = BASIC_FIELDS.some((field) => field.key === 'days' && field.required);
+    if (needDays && !U.normaliseDays(window.WB.daysField.read($('#w-days'))).length) {
+      toast('请先选活动日期（跨天就再加几天）');
+      return;
+    }
     const hadProject = Boolean(store.state.project);
     store.ensureProject();
     const project = store.state.project;
     let changed = 0;
     for (const field of BASIC_FIELDS) {
+      /* 活动日期是事实来源 days，按结构写；date/start/end 只是它的投影 */
+      if (field.type === 'days') {
+        const days = U.normaliseDays(window.WB.daysField.read($('#w-days')));
+        if (days.join('|') !== U.daysOf(project.basic).join('|')) {
+          project.basic.days = days;
+          U.syncSchedule(project.basic);
+          project.meta.basic.days = 'user';
+          changed += 1;
+        }
+        continue;
+      }
       const el = $(`#w-${field.key}`);
       if (!el) continue;
       const raw = el.value.trim();
@@ -455,6 +510,19 @@ window.WB = window.WB || {};
 
     $('#loginForm').addEventListener('submit', submitLogin);
     $('#wizardForm').addEventListener('submit', submitWizard);
+    /* 向导里的活动日期：增删一天只重画这块控件，值在提交时统一读取 */
+    $('#wizardFields').addEventListener('click', (event) => {
+      const add = event.target.closest('[data-day-add]');
+      const del = event.target.closest('[data-day-del]');
+      if (!add && !del) return;
+      const wrapper = (add || del).closest('[data-days-scope="wizard"]');
+      if (!wrapper) return;
+      const days = window.WB.daysField.read(wrapper);
+      if (add) days.push('');
+      else days.splice(Number(del.closest('.day-row')?.dataset?.dayRow) || 0, 1);
+      window.WB.daysField.repaint(wrapper, days.length ? days : ['']);
+      if (add) wrapper.querySelector('.day-row:last-child .day-date')?.focus();
+    });
     $('#wizardSkip').addEventListener('click', () => {
       if (!U.canOperate()) { toast('只读访客不能新建项目'); return; }
       store.ensureProject();

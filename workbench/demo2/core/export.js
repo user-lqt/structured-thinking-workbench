@@ -19,8 +19,13 @@ window.WB = window.WB || {};
       lines.push(`## ${section.label}`, '');
       if (section.kind === 'fields') {
         for (const field of section.fields) {
-          const value = project?.basic?.[field.key];
+          /* 活动日期是数组，导出成一句话摘要，别把 [object Object] 写进表里 */
+          const value = field.type === 'days' ? U.scheduleSummary(project?.basic || {}) : project?.basic?.[field.key];
           lines.push(`- ${field.label}：${value === '' || value == null ? '待补充' : value}`);
+          /* 每个时间段的起止与内容在「活动安排」里，单独补一行 */
+          if (field.key === 'days' && U.agendaOf(project?.basic || {}).length) {
+            lines.push(`- 活动安排：${U.agendaSummary(project.basic)}`);
+          }
         }
       } else {
         for (const item of section.items) {

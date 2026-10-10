@@ -304,6 +304,101 @@ p { margin: 0; }
 .kv-value input::placeholder, .kv-value textarea::placeholder { color: var(--text-faint); }
 .kv-meta { padding-top: 7px; text-align: right; }
 
+/* 活动日期：一行一天，跨天活动在这里选日子；date/start/end 由它投影出来 */
+.days { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.days input { width: auto; }
+.day-row { display: flex; align-items: center; gap: 6px; }
+.day-row .day-date { flex: 0 1 190px; min-width: 150px; }
+.day-del {
+  flex: none;
+  width: 26px; height: 26px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-faint);
+  font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.day-del:hover { color: #c0392b; border-color: #e0b4ae; background: #fdf3f2; }
+.day-add {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.day-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 720px) {
+  .day-row .day-date { flex-basis: 100%; }
+}
+
+/* 活动安排：一天一块，每块里若干时间段 */
+.agenda-summary { color: var(--text-soft); font-size: 13px; }
+.agenda-day {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+.agenda-day.is-orphan { border-style: dashed; background: #fffdf7; }
+.agenda-day-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.agenda-day-head strong { font-size: 14px; }
+.agenda-weekday { color: var(--text-soft); font-size: 12px; }
+.agenda-day-note { color: var(--text-faint); font-size: 12px; }
+.agenda-day-head .agenda-add {
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.agenda-day-head .agenda-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.agenda-rows { display: flex; flex-direction: column; gap: 6px; }
+.agenda-row { display: flex; align-items: center; gap: 6px; }
+.agenda-row input,
+.agenda-row select {
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background: #fff;
+}
+.agenda-row input:focus,
+.agenda-row select:focus { outline: none; border-color: var(--accent); }
+.agenda-row input[type="time"] { width: auto; flex: 0 0 118px; }
+.agenda-row .agenda-title { flex: 1 1 200px; min-width: 130px; }
+.agenda-row .agenda-day-pick { flex: 0 1 auto; max-width: 200px; }
+.agenda-sep { flex: none; color: var(--text-faint); font-size: 12px; }
+.agenda-del {
+  flex: none;
+  width: 26px; height: 26px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-faint);
+  font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.agenda-del:hover { color: #c0392b; border-color: #e0b4ae; background: #fdf3f2; }
+.agenda-tip { color: var(--text-faint); font-size: 12px; margin-top: 4px; }
+@media (max-width: 720px) {
+  .agenda-row { flex-wrap: wrap; }
+  .agenda-row .agenda-title { flex-basis: 100%; }
+}
+
 .badge {
   display: inline-block;
   padding: 2px 8px;
@@ -320,11 +415,14 @@ p { margin: 0; }
 .output-group { padding: 12px 18px; border-bottom: 1px solid var(--line); }
 .output-group:last-child { border-bottom: none; }
 .output-group-title { font-size: 12.5px; font-weight: 700; color: var(--text-soft); margin-bottom: 10px; }
-.output-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 8px; }
+/* 卡片右侧要放「查看 / 编辑 / ×」三颗按钮，窄卡片会把长标签挤成两行，所以列宽放到 300：
+   窗口 1560 时是 3 列 × 约 360px，技能 id 也能完整显示 */
+.output-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
 .output-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  /* 间距 9 → 8px：卡片右侧多了「查看」后，「活动策划书 核心」这类最长标签刚好差 1px 折行 */
+  gap: 8px;
   padding: 8px 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -337,7 +435,12 @@ p { margin: 0; }
 /* flex:1 让文字列吃掉整行的剩余宽度，徽标与删除键就总是贴到卡片右边——
    否则未勾选（没有徽标）时删除键会跟到文字后面去 */
 .output-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+/* 标签里挂着「核心 / 自定」小标记：标记自身不许折行，否则窄卡片上会出现「核 / 心」两行 */
 .output-label { font-size: 13px; color: var(--text); }
+.output-label .core-mark, .output-label .custom-mark { white-space: nowrap; }
+/* 卡片右侧多了「查看」之后，最长的标签（如「活动策划书 核心」）离单行只差几像素，
+   把标记的内外边距各收 1px，整行就装得下，不必为了一个标签把卡片撑成两行 */
+.output-label .core-mark, .output-label .custom-mark { margin-left: 5px; padding: 1px 5px; }
 .output-skill {
   font-size: 10.5px;
   color: var(--text-faint);
@@ -478,6 +581,21 @@ button.summary-chip:active { transform: scale(0.97); }
   z-index: 60;
 }
 .toast.is-show { opacity: 1; transform: translate(-50%, 0); transition-duration: 240ms; }
+/* 提示里塞了动作按钮（如批量生成后的「查看材料」）时要能点到，也让文字按钮排一行 */
+.toast { display: inline-flex; align-items: center; gap: 10px; }
+.toast-action {
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-quick) ease, border-color var(--dur-quick) ease;
+}
+.toast-action:hover { background: rgba(255, 255, 255, 0.24); border-color: rgba(255, 255, 255, 0.7); }
+.toast.is-show:has(.toast-action) { pointer-events: auto; }
 
 /* ── 风险矩阵 ─────────────────────────────── */
 .matrix-wrap { padding: 18px; overflow-x: auto; }
@@ -2294,6 +2412,39 @@ tr.is-landing > td { background-color: #d9ece7; }
   transition: border-color var(--dur-quick) ease, background var(--dur-quick) ease, color var(--dur-quick) ease;
 }
 .skill-clear:hover { border-color: #f0cdc8; background: #fdeceb; color: #8f2c22; }
+
+/* ── 产出编辑弹窗（改显示名 / 改整份技能包）── */
+.output-edit-modal .output-edit-panel { width: min(640px, 100%); }
+.output-edit-body { display: flex; flex-direction: column; gap: 14px; }
+.output-edit-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.output-edit-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.output-edit-field > span { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.output-edit-field > span small { margin-left: 8px; font-weight: 400; color: var(--text-faint); font-size: 11.5px; }
+.output-edit-field input,
+.output-edit-field select,
+.output-edit-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.6;
+}
+.output-edit-field textarea { resize: vertical; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+.output-edit-field input:focus,
+.output-edit-field select:focus,
+.output-edit-field textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+/* 内置产出：阶段 / 类型 / 章节 / 要求只读，灰掉让人一眼看出「这些不归你改」 */
+.output-edit-field input:disabled,
+.output-edit-field select:disabled,
+.output-edit-field textarea:disabled { background: #f4f7f6; color: var(--text-faint); cursor: not-allowed; }
+.output-edit-note { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 9px; background: #fbfdfc; color: var(--text-soft); font-size: 12.5px; line-height: 1.6; }
+.output-edit-note code { font-size: 11.5px; color: var(--accent); }
+.output-edit-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.output-edit-chips span { padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11.5px; }
 /* 产出配置卡片上的删除键：只出现在自定义产出上（卡片是 label，样式上不要跟着文字跑） */
 .output-remove {
   flex: none;
@@ -2310,3 +2461,93 @@ tr.is-landing > td { background-color: #d9ece7; }
   transition: background var(--dur-quick) ease, color var(--dur-quick) ease;
 }
 .output-remove:hover { background: #fdeceb; color: #8f2c22; }
+/* 产出配置卡片上的「编辑」：内置产出改显示名，自定义产出改整份技能包 */
+.output-edit {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) ease, background var(--dur-quick) ease, color var(--dur-quick) ease;
+}
+.output-edit:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* 产出配置卡片上的「查看」：只在这份材料已经生成后出现，点了直接去「过程材料」打开它 */
+.output-open {
+  flex: none;
+  padding: 2px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) ease, background var(--dur-quick) ease, color var(--dur-quick) ease;
+}
+.output-open:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* 产出配置里的去向提醒：材料不放在本页，生成后都在「过程材料」里看和改。
+   虚线框 + 主色底，扫一眼就能注意到，不会被当成普通说明文字跳过。 */
+.output-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 18px 12px;
+  padding: 9px 12px;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: #0b5f54;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.output-hint span { flex: 1; min-width: 0; }
+.output-hint .button { flex: none; }
+
+
+/* 章节编辑：删 / 加 / 改名（材料卡片上的「章节 N」按钮） */
+.section-panel {
+  border-top: 1px solid var(--line);
+  background: #fbfdfc;
+  padding: 12px 16px 14px;
+}
+.section-hint { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--text-faint); }
+.section-hint b { color: var(--text-soft); }
+.section-rows { display: grid; gap: 6px; }
+.section-row { display: flex; align-items: center; gap: 8px; }
+.section-index { width: 20px; text-align: center; font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.section-name {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.section-name:focus-visible { outline: none; border-color: var(--accent); }
+.section-del {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.section-del:hover { color: #c0392b; background: #fdeceb; }
+.section-del:disabled { opacity: 0.35; cursor: not-allowed; }
+.section-empty { margin: 0; font-size: 12px; color: var(--text-faint); }
+.section-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+@media (max-width: 720px) {
+  .section-row { flex-wrap: wrap; }
+  .section-name { flex-basis: 100%; }
+}

@@ -827,12 +827,19 @@ window.WB = window.WB || {};
     const byLabel = new Map();
     for (const item of DRAFT_ALIASES) {
       const raw = source[item.key];
-      if (raw == null || raw === '') continue;
+      /* 活动日期 / 活动安排是数组型事实来源，date 只是投影：只写投影会漏掉后面几天与时间段 */
+      const rich = item.key === 'date'
+        && (window.WB.util.daysOf(source).length > 1 || window.WB.util.agendaOf(source).length > 0);
+      if (!rich && (raw == null || raw === '')) continue;
       let text = squash(raw);
       if (item.key === 'date') {
-        text = dateText(raw);
-        const span = [squash(source.start), squash(source.end)].filter(Boolean).join('—');
-        if (span) text += ' ' + span;
+        if (rich) {
+          text = window.WB.util.scheduleDocText(source);
+        } else {
+          text = dateText(raw);
+          const span = [squash(source.start), squash(source.end)].filter(Boolean).join('—');
+          if (span) text += ' ' + span;
+        }
       }
       if (!text) continue;
       for (const label of item.labels) if (!byLabel.has(label)) byLabel.set(label, text);

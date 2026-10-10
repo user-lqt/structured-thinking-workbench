@@ -79,7 +79,8 @@ window.WB = window.WB || {};
   /* ── 契约 ─────────────────────────────── */
 
   function manifestContract() {
-    const fields = BASIC_FIELDS.map((field) => {
+    /* 活动日期是用户自己排的（可能多天），不交给 AI 填，契约里也不出现 */
+    const fields = BASIC_FIELDS.filter((field) => field.type !== 'days').map((field) => {
       const kind = field.type === 'number' ? '数字' : field.type === 'enum' ? `枚举 ${field.options.join('/')}` : '文本';
       return `    "${field.key}": ""  // ${field.label}（${kind}）`;
     }).join(',\n');
@@ -98,7 +99,20 @@ window.WB = window.WB || {};
 
   const decisionContract = () => `{\n  "options": [{ "name": "方案名称", "summary": "一句话说明" }],\n  "criteria": [{ "label": "评价维度", "weight": 3, "hint": "该维度看什么" }],\n  "scores": [{ "option": "方案名称", "criterion": "评价维度", "score": 3, "reason": "打分理由" }]\n}`;
 
-  const documentContract = (sections) => `{\n  "title": "活动名称｜文档名称",\n  "sections": [\n${sections.map((heading) => `    { "heading": ${JSON.stringify(heading)}, "body": "Markdown 正文，不要重复写 heading" }`).join(',\n')}\n  ]\n}`;
+  /* 每章的「形式」由 materials.js 的 materialForms 指定：列出来的写表格，其余写正文段落。
+     不明说的话，模型会把每一章都铺成表格——须知 / 流程 / 口径 / 说明挤进表格非常难读。 */
+  const FORM_HINT = {
+    table: 'Markdown 管道表格（表头行 + | --- | 分隔行 + 数据行），一张表只表达一件事，单元格内不要换行',
+    prose: '正文段落（可用 - 列表与 ** 强调），本章不要用表格'
+  };
+
+  function documentContract(sections, forms = {}) {
+    const rows = sections.map((heading) => {
+      const hint = FORM_HINT[forms[heading]] || '正文段落；本章本身是清单或明细时才用一张表格';
+      return `    { "heading": ${JSON.stringify(heading)}, "body": "这一章写成：${hint}；不要重复写 heading" }`;
+    }).join(',\n');
+    return `{\n  "title": "活动名称｜文档名称",\n  "sections": [\n${rows}\n  ]\n}`;
+  }
 
   /* 「按参考重排」：把现有正文改写成与参考样表形式一致的成稿。
      与 documentContract 的区别是：栏目不是我方内置章节，而是参考解析出来的栏目；
@@ -157,6 +171,8 @@ window.WB = window.WB || {};
 
   function normaliseValue(field, raw) {
     if (raw == null) return '';
+    /* 活动日期是用户自己排的，AI 一律不写，避免把多天排期拍扁成一天 */
+    if (field.type === 'days') return '';
     if (field.type === 'number') {
       /* 数字字段收到「待确认」这类占位词时不能当成 0：洗掉非数字字符后 Number('') 正好是 0，
          会把「不知道」写成一个看起来像事实的数字。洗不出数字就返回空，交给下游当未填处理。 */

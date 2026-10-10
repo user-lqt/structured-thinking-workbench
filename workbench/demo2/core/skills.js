@@ -26,6 +26,9 @@ window.WB = window.WB || {};
   const BUILTIN_KEYS = new Set(BUILTIN.map((item) => item.key));
   const REGISTRY_SKILLS = new Set(Object.keys(window.SKILLS.materials || {}));
 
+  /* 每个产出的默认名（技能包里的名字）：项目改过名之后要能还原回去 */
+  const baseLabel = new Map(BUILTIN.map((item) => [item.key, item.label]));
+
   const PHASES = ['plan', 'prepare', 'execute', 'close'];
   const KIND_LABEL = { document: '文档', table: '表格', graphic: '图形' };
   const DELIVERABLE_OF_KIND = { document: 'word', table: 'excel', graphic: 'svg' };
@@ -85,7 +88,7 @@ window.WB = window.WB || {};
       sections.map((heading) => `- ${heading}`).join('\n'),
       '',
       '只使用输入里给出的事实；缺失的人名、单位、电话、金额、人数、依据一律写「待确认」，不得编造。',
-      '正文用规范 Markdown：标题、空行分段、- 列表、管道表格；不要写 HTML、不要合并单元格。'
+      '正文用规范 Markdown：空行分段、- 列表；章节本身是清单或明细时才用管道表格，说明 / 规则 / 流程 / 职责一律写段落。不要写 HTML、不要合并单元格。'
     ].join('\n');
   }
 
@@ -144,6 +147,9 @@ window.WB = window.WB || {};
       skill: {
         id, title, kind, phase, deliverable: wantDeliverable,
         key, description, sections, rules, custom: true,
+        /* 正文原文：编辑面板回填「生成要求」用它——留空表示「按章节给通用口径」，
+           不能把兜底规则当成用户写的规则存回去 */
+        rulesBody: U.text(body),
         item: { key, label: title, phase, skill: id, kind, custom: true }
       }
     };
@@ -168,7 +174,10 @@ window.WB = window.WB || {};
 
   function sync() {
     U.OUTPUT_ITEMS.splice(0, U.OUTPUT_ITEMS.length, ...BUILTIN, ...custom.map((skill) => skill.item));
+    /* 自定义项的默认名每次装配都要重记：技能包被编辑过之后名字会跟着变 */
+    for (const skill of custom) baseLabel.set(skill.key, skill.title);
     syncMaterials();
+    applyNames(activeProject());
   }
 
   /* ── 本地技能库 ─────────────────────────── */
@@ -218,6 +227,65 @@ window.WB = window.WB || {};
 
   const find = (id) => custom.find((skill) => skill.id === id) || null;
 
+  /* ── 显示名与编辑 ─────────────────────────
+     产出名可以改：内置产出改的是「这个项目里的显示名」，存 project.meta.outputNames；
+     自定义产出改的是技能包本身（见 update）。两者都走 applyNames ——
+     和装配同一条思路：把名字刷回共享的 OUTPUT_ITEMS 条目（item.label），
+     产出配置、过程材料、导出、引导文案自然全都跟着变，不必各自去查覆盖表。 */
+
+  const activeProject = () => window.WB.store?.state?.project || null;
+
+  function applyNames(project) {
+    const names = project?.meta?.outputNames || {};
+    for (const item of U.OUTPUT_ITEMS) {
+      const base = baseLabel.get(item.key) ?? item.label;
+      const override = typeof names[item.key] === 'string' ? U.text(names[item.key]) : '';
+      item.label = override || base;
+    }
+  }
+
+  /* 改内置产出的显示名：name 传空（或等于默认名）= 恢复技能包里的名字 */
+  function rename(key, name, project = activeProject()) {
+    if (!project || !baseLabel.has(key)) return false;
+    const base = baseLabel.get(key);
+    const next = U.text(name).slice(0, MAX_TITLE);
+    project.meta = project.meta || {};
+    project.meta.outputNames = project.meta.outputNames || {};
+    if (!next || next === base) delete project.meta.outputNames[key];
+    else project.meta.outputNames[key] = next;
+    applyNames(project);
+    return true;
+  }
+
+  /* 把编辑表单里的字段写回成一份技能包文本：技能库里的原文始终是唯一事实来源，
+     导出、分享、以后重新导入拿到的都是同一份。 */
+  function compose(fields) {
+    const lines = ['---', `name: ${fields.id}`, `title: ${fields.title}`];
+    if (fields.description) lines.push(`description: ${fields.description}`);
+    lines.push(`kind: ${fields.kind}`, `phase: ${fields.phase}`, `output: ${fields.key}`, 'sections:');
+    for (const heading of fields.sections) lines.push(`  - ${heading}`);
+    lines.push('---', '');
+    if (fields.rulesBody) lines.push(fields.rulesBody);
+    return lines.join('\n');
+  }
+
+  /* 编辑自定义技能包：id 与产出 key 不动（项目里勾的就是它），其余字段改写后重新装配 */
+  function update(id, fields = {}) {
+    const current = find(id);
+    if (!current) return { ok: false, errors: ['没找到这个自定义技能包。'], skill: null };
+    const source = compose({
+      id: current.id,
+      key: current.key,
+      title: fields.title ?? current.title,
+      description: fields.description ?? current.description,
+      kind: fields.kind ?? current.kind,
+      phase: fields.phase ?? current.phase,
+      sections: fields.sections ?? current.sections,
+      rulesBody: fields.rulesBody ?? current.rulesBody
+    });
+    return add(source);
+  }
+
   const TEMPLATE = [
     '---',
     'name: safety-brief          # 技能 id：字母开头，只含字母数字与 - _',
@@ -249,6 +317,11 @@ window.WB = window.WB || {};
     parse,
     add,
     remove,
+    /* 改名与编辑：rename 改内置产出的显示名（按项目存），update 改自定义技能包本身 */
+    rename,
+    update,
+    compose,
+    applyNames,
     list: () => custom.slice(),
     count: () => custom.length,
     builtinCount: () => BUILTIN.length,

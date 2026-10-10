@@ -46,8 +46,12 @@ window.WB.views = window.WB.views || {};
   const docxLib = () => window.WB.docx;
   const referenceSections = (outputKey) => (referenceOf(outputKey)?.sections || []).map((section) => section.heading);
 
-  /* 章节优先级：手选模板 > 参考件栏目 > 内置默认章节 */
-  function chosenSections(outputKey) {
+  /* 章节优先级：用户自己改过的章节表 > 手选模板 > 参考件栏目 > 内置默认章节。
+     用户那份里可能有还没命名的空行（「＋ 添加章节」刚加出来的），所以拆成两层：
+     sectionListOf 给编辑面板看原样，chosenSections 给生成 / 计数用（去掉空标题）。 */
+  function sectionListOf(outputKey) {
+    const custom = state().materialSections?.[outputKey];
+    if (Array.isArray(custom) && custom.length) return custom.slice();
     const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
     const templateId = state().materialTemplates[outputKey];
     const template = state().templates.find((entry) => entry.id === templateId);
@@ -57,8 +61,69 @@ window.WB.views = window.WB.views || {};
     return materialDef(item?.skill)?.sections || [];
   }
 
+  const chosenSections = (outputKey) => sectionListOf(outputKey)
+    .map((heading) => U.text(heading)).filter(Boolean);
+
+  /* 章节增删改都落到这一处：写进 state.materialSections，并把已生成的正文按新章节重排。
+     同一标题的正文原样保留，新加的章节先写「待补充」——不静默丢内容，也不留已经删掉的章。 */
+  function setSections(outputKey, list) {
+    const cut = (value) => U.text(value).replace(/\s+/g, ' ').trim();
+    const next = list.map(cut);
+    const def = materialDef(OUTPUT_ITEMS.find((entry) => entry.key === outputKey)?.skill)?.sections || [];
+    const custom = (state().materialSections ||= {});
+    /* 跟内置默认一模一样时不留自定义，免得以后改了默认章节，这份材料还停在旧版本 */
+    if (next.join('|') === def.join('|')) delete custom[outputKey];
+    else custom[outputKey] = next;
+    syncSectionsToDoc(outputKey);
+    store().save();
+    render();
+  }
+
+  /* 章节变了就让已生成的正文跟着走：标题没变的保留原内容，新章节先占位 */
+  function syncSectionsToDoc(outputKey) {
+    const doc = state().materials[outputKey];
+    if (!doc) return;
+    const list = chosenSections(outputKey);
+    if (!list.length) return;
+    const keep = new Map((doc.sections || []).map((section) => [section.heading, section.body]));
+    doc.sections = list.map((heading) => ({ heading, body: keep.get(heading) ?? '待补充' }));
+  }
+
+  /* 每章写成正文还是表格：由 materials.js 的 materialForms 指定；
+     模板 / 参考件带来的章节不在表里，就交给模型按「是不是清单」自己判断。 */
+  function chosenForms(outputKey) {
+    const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
+    const forms = window.SKILLS.materialForms?.[item?.skill] || {};
+    const picked = {};
+    for (const heading of chosenSections(outputKey)) if (forms[heading]) picked[heading] = forms[heading];
+    return picked;
+  }
+
+  /* 章节编辑面板：删 / 加 / 改名 / 恢复默认。改动立刻写进状态，已生成的正文跟着重排
+     （见 setSections），下一次生成也按这份章节走。 */
+  function sectionPanel(outputKey) {
+    const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
+    const list = sectionListOf(outputKey);
+    const custom = Boolean(state().materialSections?.[outputKey]?.length);
+    const rows = list.map((heading, index) => `<div class="section-row">
+      <span class="section-index">${index + 1}</span>
+      <input class="section-name" data-section-name="${outputKey}" data-section-index="${index}" value="${escapeHtml(heading)}" placeholder="章节标题，例如「五、应急处置」" />
+      <button type="button" class="section-del" data-section-del="${outputKey}" data-section-index="${index}" title="删掉这一章">×</button>
+    </div>`).join('');
+    return `<section class="section-panel" data-section-panel="${outputKey}">
+      <p class="section-hint">这是《${escapeHtml(item?.label || '')}》生成时的章节表：<b>删掉的不再生成</b>，也能改名或添加。改动立刻生效——已生成的正文按新章节重排（标题没变的保留内容，新章节先写「待补充」）。上传模板或挂参考件会把章节整份换掉。</p>
+      <div class="section-rows">${rows || '<p class="section-empty">一章都没了，先加一章。</p>'}</div>
+      <div class="section-actions">
+        <button type="button" class="button button-ghost" data-section-add="${outputKey}">＋ 添加章节</button>
+        <button type="button" class="button button-quiet" data-section-reset="${outputKey}" ${custom ? '' : 'disabled'} title="回到内置默认章节">恢复默认</button>
+        <button type="button" class="button button-quiet" data-section-close="${outputKey}">收起</button>
+      </div>
+    </section>`;
+  }
+
   /* 这份材料的章节来自哪里，写进文档元信息，免得误以为是内置章节 */
   function sectionSource(outputKey) {
+    if (state().materialSections?.[outputKey]?.length) return '自定义章节';
     const templateId = state().materialTemplates[outputKey];
     const template = state().templates.find((entry) => entry.id === templateId);
     if (template) return `模板《${template.name}》`;
@@ -174,6 +239,8 @@ window.WB.views = window.WB.views || {};
 
   const fillModels = new Map();
   const fillOpen = new Set();
+  /* 章节面板的开合：和 fillOpen 一样只放内存，不写进存档 */
+  const sectionsOpen = new Set();
   const fillScope = new Map();
   /* 逐格填空：索引只放内存（和 fillOpen / fillScope 一样），不写进存档；
      fillBasis 暂存「这一格的值是谁给的依据」，只在当次会话里显示。 */
@@ -669,6 +736,7 @@ window.WB.views = window.WB.views || {};
         <span class="material-state">${escapeHtml(stateText)}</span>
         <div class="material-actions">
           ${ready && !isStructure ? templateOptions : ''}
+          ${ready && !isStructure ? `<button class="button button-quiet" data-material-sections-toggle="${item.key}" title="这一份材料生成哪几章：可以删、改名、添加">章节 ${escapeHtml(String(sections.length))}</button>` : ''}
           ${ready && !isStructure ? referenceControl(item.key) : ''}
           ${fillable ? `<button class="button button-ghost" data-material-fill="${item.key}" title="${escapeHtml(`把《${reference.name}》当成一张要填的表：表格、栏目、条目数量、缩进全部照它，只替换识别出的值；离线可用`)}">⇩ 参考表填值</button>` : ''}
           ${isPoster ? `<button class="button button-ghost" data-poster-open>海报设计器</button>` : ''}
@@ -681,6 +749,7 @@ window.WB.views = window.WB.views || {};
                ${doc ? downloadButtons(item) : ''}`}
         </div>
       </header>
+      ${sectionsOpen.has(item.key) ? sectionPanel(item.key) : ''}
       ${fillOpen.has(item.key) ? fillPanel(item.key) : ''}
       ${open && doc ? materialEditor(item.key, doc) : ''}
       ${isPoster && open ? posterEditor() : ''}
@@ -1070,7 +1139,7 @@ window.WB.views = window.WB.views || {};
     return {
       title: base.title ?? basic.name ?? '校园活动',
       subtitle: base.subtitle ?? (basic.content ? String(basic.content).slice(0, 22) : ''),
-      time: base.time ?? [basic.date, basic.start].filter(Boolean).join(' '),
+      time: base.time ?? (U.scheduleSummary(basic) || [basic.date, basic.start].filter(Boolean).join(' ')),
       place: base.place ?? basic.venue ?? '',
       org: base.org ?? basic.organizer ?? '',
       slogan: base.slogan ?? '',
@@ -1374,7 +1443,7 @@ window.WB.views = window.WB.views || {};
     const template = current.templates.find((entry) => entry.id === templateId);
     const headings = chosenSections(outputKey);
     if (!headings.length) { window.WB.toast('该产出还没有可用的章节模板'); return false; }
-    const data = await window.WB.ai.run(item.skill, materialInput(item, template), window.WB.ai.documentContract(headings), '/api/material');
+    const data = await window.WB.ai.run(item.skill, materialInput(item, template), window.WB.ai.documentContract(headings, chosenForms(outputKey)), '/api/material');
     if (!data || !Array.isArray(data.sections)) return false;
     const sections = headings.map((heading, index) => {
       const matched = data.sections.find((section) => U.text(section.heading) === heading) || data.sections[index];
@@ -1479,8 +1548,18 @@ window.WB.views = window.WB.views || {};
       const ok = await generateOne(item.key, { silent: true });
       if (ok) done += 1;
     }
+    /* 新生成的产出可能不在当前阶段筛选里，先切到「全部」，跳过去才看得见 */
+    current.ui.materialPhase = 'all';
     render();
-    window.WB.toast(`批量生成完成：成功 ${done}/${targets.length} 份`);
+    const lastKey = [...targets].reverse().find((item) => current.materials[item.key])?.key || '';
+    const message = `批量生成完成：成功 ${done}/${targets.length} 份`;
+    if (done && lastKey && window.WB.toastAction) {
+      window.WB.toastAction(message, '查看材料', () => {
+        window.WB.gotoTarget?.({ view: 'material', openMaterial: lastKey });
+      });
+    } else {
+      window.WB.toast(message);
+    }
   }
 
   async function uploadTemplate(file) {
@@ -1553,6 +1632,41 @@ window.WB.views = window.WB.views || {};
       if (toggle) {
         const key = toggle.dataset.materialToggle;
         current.ui.openMaterial = current.ui.openMaterial === key ? null : key;
+        store().save();
+        render();
+        return;
+      }
+      const sectionsToggle = event.target.closest('[data-material-sections-toggle]');
+      if (sectionsToggle) {
+        const key = sectionsToggle.dataset.materialSectionsToggle;
+        if (sectionsOpen.has(key)) sectionsOpen.delete(key); else sectionsOpen.add(key);
+        render();
+        return;
+      }
+      const sectionClose = event.target.closest('[data-section-close]');
+      if (sectionClose) { sectionsOpen.delete(sectionClose.dataset.sectionClose); render(); return; }
+      const sectionDel = event.target.closest('[data-section-del]');
+      if (sectionDel) {
+        if (!U.canOperate()) { window.WB.toast('只读访客不能改章节'); return; }
+        const key = sectionDel.dataset.sectionDel;
+        setSections(key, sectionListOf(key).filter((_, index) => index !== Number(sectionDel.dataset.sectionIndex)));
+        return;
+      }
+      const sectionAdd = event.target.closest('[data-section-add]');
+      if (sectionAdd) {
+        if (!U.canOperate()) { window.WB.toast('只读访客不能改章节'); return; }
+        const key = sectionAdd.dataset.sectionAdd;
+        setSections(key, [...sectionListOf(key), '']);
+        const inputs = panel.querySelectorAll('[data-section-name="' + key + '"]');
+        inputs[inputs.length - 1]?.focus();
+        return;
+      }
+      const sectionReset = event.target.closest('[data-section-reset]');
+      if (sectionReset) {
+        if (!U.canOperate()) { window.WB.toast('只读访客不能改章节'); return; }
+        const key = sectionReset.dataset.sectionReset;
+        delete (state().materialSections || {})[key];
+        syncSectionsToDoc(key);
         store().save();
         render();
         return;
@@ -1804,6 +1918,16 @@ window.WB.views = window.WB.views || {};
         if (preview) preview.innerHTML = `<p class="preview-hint">预览（导出尺寸 1080 × 1440）</p>${posterSvg(posterDesign())}`;
         return;
       }
+      /* 改章节名：打字只改内存不重排，免得标题改到一半、正文因为「对不上号」被清成待补充 */
+      const sectionName = event.target.closest('[data-section-name]');
+      if (sectionName) {
+        if (!U.canOperate()) return;
+        const key = sectionName.dataset.sectionName;
+        const list = sectionListOf(key);
+        list[Number(sectionName.dataset.sectionIndex)] = sectionName.value;
+        (state().materialSections ||= {})[key] = list;
+        return;
+      }
       const title = event.target.closest('[data-material-title]');
       if (title) {
         const doc = current.materials[title.dataset.materialTitle];
@@ -1832,6 +1956,19 @@ window.WB.views = window.WB.views || {};
       }
       const fillChanged = event.target.closest('[data-fill-input]');
       if (fillChanged) { store().save(); return; }
+      /* 失焦 / 回车才算改名落定：这时才按新标题重排正文并落盘 */
+      const sectionName = event.target.closest('[data-section-name]');
+      if (sectionName) {
+        if (!U.canOperate()) return;
+        const key = sectionName.dataset.sectionName;
+        const list = sectionListOf(key);
+        list[Number(sectionName.dataset.sectionIndex)] = sectionName.value;
+        (state().materialSections ||= {})[key] = list;
+        syncSectionsToDoc(key);
+        store().save();
+        render();
+        return;
+      }
       const select = event.target.closest('[data-material-template]');
       if (!select) return;
       const key = select.dataset.materialTemplate;
@@ -1882,5 +2019,5 @@ window.WB.views = window.WB.views || {};
     });
   }
 
-  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterSvg: () => posterSvg(posterDesign()) };
+  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, chosenForms, sectionListOf, setSections, syncSectionsToDoc, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterSvg: () => posterSvg(posterDesign()) };
 }());
