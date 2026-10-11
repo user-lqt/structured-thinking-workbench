@@ -146,7 +146,7 @@ window.WB.views = window.WB.views || {};
         挂靠任务: risk.task, 预防措施: risk.prevention, 现场响应: risk.response, 升级路径: risk.escalation, 责任人: risk.owner
       }));
       else if (key === 'resources') out['资源台账'] = (current.resources || []).map((item) => ({
-        资源: item.name, 类型: item.kind, 单位: item.unit, 可用: item.available, 已安排: item.assigned, 责任人: item.owner, 说明: item.note
+        资源: item.name, 类型: item.kind, 单位: item.unit, 库存可用: item.available, 计划需求: item.assigned, 已借出: item.loaned || 0, 单价: item.unitCost || 0, 存放地点: item.location, 采购来源: item.supplier, 状态: item.condition, 责任人: item.owner, 说明: item.note
       }));
       else if (key === 'assets') out['素材库'] = window.WB.library.context(current.assets, 'assets');
       else if (key === 'knowledge') out['知识库'] = window.WB.library.context(current.assets, 'knowledge');
@@ -291,6 +291,7 @@ window.WB.views = window.WB.views || {};
     if (!U.canOperate()) return false;
     const card = find(id), item = U.OUTPUT_ITEMS.find((item) => item.skill === card?.skill);
     if (!card?.output?.text || !item) { window.WB.toast('请选择对应产出技能并填写正文后再写入材料'); return false; }
+    if (item.key === 'materialList') { window.WB.toast('物料清单统一在人员与资源管理，卡片正文保留供参考，不替换资源台账。'); return false; }
     if (state().materials[item.key] && !confirm('该材料已有正文，确定用卡片结果替换？原正文将保留在工作流材料备份中。')) return false;
     state().workflow.materialBackups ||= {};
     if (state().materials[item.key]) state().workflow.materialBackups[item.key] = JSON.parse(JSON.stringify(state().materials[item.key]));
@@ -302,7 +303,7 @@ window.WB.views = window.WB.views || {};
       else lines.push(line);
     }
     if (lines.length || !sections.length) sections.push({ heading, body: lines.join('\n').trim() });
-    state().materials[item.key] = { title: card.output.title || card.title, sections, generatedAt: nowIso(), source: 'user', templateName: '卡片工作流', workflowCardId: id };
+    state().materials[item.key] = { materialId: state().materials[item.key]?.materialId || `MAT-${item.key}`, deliveries: state().materials[item.key]?.deliveries || [], aiDraft: Boolean(card.output.model && card.output.model !== '手工') || state().materials[item.key]?.aiDraft || false, title: card.output.title || card.title, sections, generatedAt: nowIso(), source: card.output.model && card.output.model !== '手工' ? 'ai-workflow' : 'user', templateName: '卡片工作流', workflowCardId: id };
     state().project.outputs[item.key] = true;
     store().log('workflow', `卡片《${card.title}》写入过程材料`); store().save();
     window.WB.renderPanelsMeta?.(); render(); window.WB.toast('已写入过程材料，可继续编辑与导出'); return true;

@@ -24,8 +24,8 @@ window.WB = window.WB || {};
     }
     return nativeFetch(input, options);
   };
-  async function api(id, options = {}) {
-    const response = await nativeFetch(`/api/shared/${encodeURIComponent(id)}`, { ...options, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessions[id].token}`, 'X-Project-Id': id } });
+  async function api(id, options = {}, suffix = '') {
+    const response = await nativeFetch(`/api/shared/${encodeURIComponent(id)}${suffix}`, { ...options, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessions[id].token}`, 'X-Project-Id': id, 'X-Staff-Session': window.WB.personnel?.sessionToken || '' } });
     const data = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error || '共享服务不可用'), { status: response.status });
     return data;
@@ -56,18 +56,50 @@ window.WB = window.WB || {};
   }
   async function flush() {
     const id = store().state.activeId, session = sessions[id];
-    if (!session || busy || conflict || active !== id || !baseline) return;
+    if (!session || busy || conflict || active !== id || !baseline) return false;
     const doc = documentOf(), content = signature(JSON.stringify(doc));
-    if (content === baseline) { show('已同步'); return; }
-    if (session.role === 'viewer') { show('只读共享'); return; }
+    if (content === baseline) { show('已同步'); return true; }
+    if (session.role === 'viewer') { show('只读共享'); return false; }
     busy = true; show('正在保存…');
     try {
       const data = await api(id, { method: 'PUT', body: JSON.stringify({ revision: session.revision, doc }) });
-      if (store().state.activeId !== id) return;
+      if (store().state.activeId !== id) return false;
       session.revision = data.revision; markBaseline(content); show('已同步');
-    } catch (error) { conflict = error.status === 409; show(conflict ? '保存冲突：本机草稿已保留，请下载后载入最新版本' : `同步失败：${error.message}；草稿已存本机`); }
+      return true;
+    } catch (error) { conflict = error.status === 409; show(conflict ? '保存冲突：本机草稿已保留，请下载后载入最新版本' : `同步失败：${error.message}；草稿已存本机`); return false; }
     finally { busy = false; }
   }
+  async function command(suffix, action) {
+    const id = store().state.activeId;
+    if (!await flush()) throw new Error(message || '共享尚未同步，任务操作未保存，请稍后重试');
+    if (store().state.activeId !== id) throw new Error('项目已切换，任务操作未保存');
+    // Compare with the last confirmed server snapshot, including edits made during flush().
+    const actionBaseline = baseline;
+    busy = true;
+    try {
+      const data = await api(id, { method: 'POST', body: JSON.stringify({ revision: sessions[id].revision, ...action }) }, suffix);
+      if (store().state.activeId !== id) return;
+      const draft = serialize() !== actionBaseline ? store().exportBundle() : null;
+      apply(data);
+      if (draft) {
+        const serverTasks = new Map(data.doc.wbs.map((row) => [row.id, row]));
+        draft.wbs = draft.wbs.map(({ lifecycle, legacyReporting, importedLifecycle, ...row }) => {
+          const saved = serverTasks.get(row.id);
+          return saved ? { ...row, lifecycle: saved.lifecycle, legacyReporting: saved.legacyReporting,
+            ...(saved.importedLifecycle ? { importedLifecycle: saved.importedLifecycle } : {}) } : { ...row, lifecycle: window.WB.taskLifecycle.fresh() };
+        });
+        for (const [key, saved] of Object.entries(data.doc.materials || {})) {
+          if (draft.materials[key]) Object.assign(draft.materials[key], { materialId: saved.materialId, deliveries: saved.deliveries });
+          else if (saved.deliveries?.length) draft.materials[key] = saved;
+        }
+        store().replace(draft); window.WB.renderAll?.();
+      }
+    } catch (error) { if (error.status === 409) { conflict = true; show('保存冲突：任务操作未写入，请载入共享最新版本后重试'); } throw error; }
+    finally { busy = false; }
+  }
+  const taskAction = (taskId, action) => command(`/tasks/${encodeURIComponent(taskId)}/actions`, action);
+  const publishDelivery = (key, note) => command(`/materials/${encodeURIComponent(key)}/deliveries`, { note });
+  const taskDetails = (taskId) => api(store().state.activeId, {}, `/tasks/${encodeURIComponent(taskId)}`);
   function onSave() {
     if (applying) return;
     clearTimeout(timer);
@@ -85,6 +117,19 @@ window.WB = window.WB || {};
     const url = new URL('/', store().state.signup?.base || location.origin);
     url.searchParams.set('share', id); url.hash = `token=${encodeURIComponent(s.tokens?.[role] || s.token)}`;
     window.prompt(`${role === 'viewer' ? '只读' : '协作'}邀请链接（手机请使用公网或局域网地址）`, url.href);
+  }
+  async function prepare() {
+    const id = store().state.activeId;
+    if (sessions[id]) {
+      if (active !== id) { active = id; baseline = sessions[id].baseline || serialize(); conflict = false; }
+      await flush(); return;
+    }
+    if (!window.WB.util.canManage() || !store().state.project) throw new Error('请由活动组织者建立项目。');
+    const response = await nativeFetch('/api/shared', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: id, doc: documentOf() }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || '请使用 Node 服务启动账号与项目管理。');
+    if (store().state.activeId !== id || data.id !== id) throw new Error('项目已改变，请重新打开。');
+    sessions[id] = { token: data.tokens.organizer, tokens: data.tokens, role: 'organizer', revision: data.revision };
+    active = id; apply(data); show('共享已开启');
   }
   async function init() {
     if (!window.location?.href) return;
@@ -110,11 +155,9 @@ window.WB = window.WB || {};
       try {
         if (el.hasAttribute('data-shared-create')) {
           if (!window.WB.util.canManage() || !store().state.project) throw new Error('请由活动组织者先建立项目再开启共享。');
-          const response = await nativeFetch('/api/shared', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: store().state.activeId, doc: documentOf() }) });
-          const data = await response.json(); if (!response.ok) throw new Error(data.error || '当前站点没有共享服务，请使用 Node 服务启动。');
-          if (data.id !== store().state.activeId) throw new Error('项目已共享，请用原组织者浏览器打开。');
-          sessions[data.id] = { token: data.tokens.organizer, tokens: data.tokens, role: 'organizer', revision: data.revision };
-          active = data.id; markBaseline(serialize()); show('共享已开启'); window.WB.renderAll?.(); invite();
+          await prepare();
+          if (window.WB.personnel?.account) await window.WB.personnel.enterWorkbench();
+          window.WB.renderAll?.(); invite();
         }
         if (el.hasAttribute('data-shared-invite')) { const s = sessions[store().state.activeId]; invite(s.tokens ? (confirm('确定：复制可编辑协作链接；取消：复制只读链接。') ? 'member' : 'viewer') : (s.role === 'viewer' ? 'viewer' : 'member')); }
         if (el.hasAttribute('data-shared-rotate')) {
@@ -140,5 +183,8 @@ window.WB = window.WB || {};
       finally { busy = false; }
     }, 2500);
   }
-  window.WB.sync = { init, onSave, controls, flush, get role() { return sessions[store().state.activeId]?.role || ''; } };
+  window.WB.sync = { init, onSave, controls, flush, prepare, taskAction, publishDelivery, taskDetails,
+    get accessToken() { return sessions[store().state.activeId]?.token || ''; },
+    get ownerToken() { const s = sessions[store().state.activeId]; return s?.role === 'organizer' ? s.token : ''; },
+    get role() { return sessions[store().state.activeId]?.role || ''; } };
 }());

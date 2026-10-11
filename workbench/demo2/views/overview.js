@@ -60,7 +60,7 @@ window.WB.views = window.WB.views || {};
     const blocks = PHASES.map((phase) => {
       const stats = window.WB.wbs.phaseStats(state.wbs, phase.value);
       const gate = window.WB.wbs.gateStats(state.gates?.[phase.value], phase.value);
-      const suffix = stats.percent >= 100 ? '已全部完成' : stats.total ? '去看任务' : '去补任务';
+      const suffix = stats.percent >= 100 ? '已全部验收' : stats.total ? '去看任务' : '去补任务';
       return `<button type="button" class="phase-block phase-${phase.value}"
         data-goto-view="tasks" data-goto-taskview="table" data-goto-phase="${phase.value}"
         title="点击进入${escapeHtml(phase.label)}的任务分解表">
@@ -71,7 +71,9 @@ window.WB.views = window.WB.views || {};
         </div>
         <div class="bar"><i style="width:${stats.percent}%"></i></div>
         <div class="phase-block-meta">
-          <span>任务 ${stats.done}/${stats.total}</span>
+          <span>已验收 ${stats.done}/${stats.total}</span>
+          ${stats.review ? `<span>待验收 ${stats.review}</span>` : ''}
+          ${stats.verification ? `<span class="warn">待核实 ${stats.verification}</span>` : ''}
           <span>门禁 ${gate.done}/${gate.total}</span>
           ${stats.blocked ? `<span class="warn">受阻 ${stats.blocked}</span>` : ''}
           <span class="phase-go">${suffix} →</span>
@@ -79,7 +81,7 @@ window.WB.views = window.WB.views || {};
       </button>`;
     }).join('');
     return `<div class="card">
-      <div class="card-title"><h3>全周期进度</h3><small>总完成度 ${overall.percent}% · 里程碑 ${overall.milestonesDone}/${overall.milestones} · 点任意阶段直接进入它的任务表</small></div>
+      <div class="card-title"><h3>全周期验收情况</h3><small>已验收占比 ${overall.percent}% · 里程碑已验收 ${overall.milestonesDone}/${overall.milestones} · 点任意阶段进入任务表</small></div>
       <div class="phase-grid">${blocks}</div>
     </div>`;
   }
@@ -187,7 +189,7 @@ window.WB.views = window.WB.views || {};
     const overall = window.WB.wbs.overall(state.wbs);
     const stats = [
       renderCountdown(state),
-      statCard('任务完成度', String(overall.percent), '%'),
+      statCard('已验收占比', String(overall.percent), '%'),
       statCard('进行中 / 受阻', `${overall.doing} / ${overall.blocked}`, '项', overall.blocked ? 'warn' : ''),
       statCard('风险总数', String((state.risks || []).length), '项')
     ].join('');

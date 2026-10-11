@@ -35,7 +35,7 @@ window.WB = window.WB || {};
     PHASE_LABEL: Object.fromEntries(WBS.phases.map((p) => [p.value, p.label])),
     PHASE_ORDER: Object.fromEntries(WBS.phases.map((p, i) => [p.value, i])),
     STATUS_LABEL: Object.fromEntries(WBS.statuses.map((s) => [s.value, s.label])),
-    STATUS_CLASS: { todo: 'st-todo', doing: 'st-doing', blocked: 'st-blocked', done: 'st-done' },
+    STATUS_CLASS: { todo: 'st-todo', doing: 'st-doing', review: 'st-review', accepted: 'st-done' },
     SOURCE_LABEL: { user: '用户填写', ai: 'AI 建议', pending: '待确认' },
     RISK_CATEGORY: Object.fromEntries(RISK.categories.map((c) => [c.value, c.label])),
     LEVEL_LABEL: Object.fromEntries(RISK.levels.map((l) => [l.value, l.label])),

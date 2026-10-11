@@ -23,10 +23,10 @@ function die(message) {
 }
 
 /* 发布清单：逐个写出来，不用通配符扫目录——宁可多写几行，也不要误把别的东西带出去。 */
-const CORE = ['util', 'library', 'qr', 'signup', 'store', 'sync', 'skills', 'risk', 'wbs', 'guide', 'drills', 'ai', 'interview', 'markdown', 'ooxml', 'docx', 'export'];
+const CORE = ['util', 'deliveries', 'task-lifecycle', 'library', 'personnel', 'inventory', 'qr', 'signup', 'store', 'sync', 'skills', 'risk', 'wbs', 'guide', 'drills', 'ai', 'interview', 'markdown', 'ooxml', 'docx', 'export'];
 const VIEWS = ['projects', 'overview', 'manifest', 'agenda', 'tasks', 'decision', 'risk', 'resources', 'drills', 'material', 'workflow', 'assets', 'signup', 'help'];
 const PAGES = [
-  'index.html', 'signup.html', 'styles.css', 'app.js', 'schemas.js', 'materials.js',
+  'index.html', 'signup.html', 'staff.html', 'styles.css', 'app.js', 'schemas.js', 'materials.js',
   ...CORE.map((name) => `core/${name}.js`),
   ...VIEWS.map((name) => `views/${name}.js`),
   'samples/示例项目-校园科技文化节.json',

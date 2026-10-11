@@ -8,24 +8,41 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div id="loginGate" class="login-gate" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
-      <form id="loginForm" class="login-panel">
+    <div id="loginGate" class="login-gate is-open" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <div class="login-panel">
         <div class="login-head">
           <span class="brand-mark">结</span>
           <div>
             <div class="eyebrow">结构化活动工作台</div>
-            <h1 id="loginTitle">选择本地演示身份</h1>
+            <h1 id="loginTitle">先登录，再选择项目</h1>
           </div>
         </div>
-        <p class="login-note">这是纯本地的演示身份，不接入任何账号系统；身份只保存在你自己的浏览器里，用来演示「谁能改、谁只能看」。</p>
+        <p class="login-note">填写一次账号资料，打开项目后自动录入该项目的人员名册。</p>
+        <form id="accountLoginForm" class="staff-form">
+          <div class="staff-fields">
+            <label>操作<select name="mode" id="accountLoginMode"><option value="login">登录已有账号</option><option value="register">注册新账号</option></select></label>
+            <label>账号<input name="username" required minlength="3" maxlength="60" pattern="[A-Za-z0-9_.-]+" autocomplete="username" placeholder="字母、数字或 _.-" /></label>
+            <label>密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="current-password" /></label>
+          </div>
+          <div id="accountRegisterFields" hidden>
+            <label>使用方式<select name="workspace"><option value="organizer">组织活动 · 创建与管理项目</option><option value="volunteer">参加服务 · 查看个人任务</option></select></label>
+            <div id="accountProfileFields"></div>
+            <p class="staff-note">项目内的管理身份由负责人授权；其他成员首次加入后等待确认。</p>
+          </div>
+          <p id="accountLoginMessage" class="staff-message" role="status"></p>
+          <button class="button button-primary" id="accountLoginSubmit">登录并选择项目 →</button>
+        </form>
+        <details class="local-demo-login"><summary>本地演示身份（无账号，不记录服务工时）</summary>
+        <form id="loginForm">
         <label class="login-field"><span>显示名称</span>
           <input id="loginName" name="name" maxlength="20" autocomplete="off" placeholder="如：张同学" /></label>
         <div class="login-roles" id="loginRoles"></div>
         <div class="login-foot">
-          <span id="loginHint" class="wizard-hint">身份可随时在右上角切换，不会丢失任何数据</span>
-          <button type="submit" class="button button-primary" id="loginSubmit">进入工作台 <span>→</span></button>
+          <span id="loginHint" class="wizard-hint">用于离线查看或协作邀请演示；正式人员登记请使用上方账号登录</span>
+          <button type="submit" class="button button-ghost" id="loginSubmit">进入本地演示 <span>→</span></button>
         </div>
-      </form>
+        </form></details>
+      </div>
     </div>
 
     <div id="wizard" class="wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
@@ -176,7 +193,7 @@
           <div class="panel-head">
             <div>
               <h2>项目库</h2>
-              <p>本机项目可切换、复制、归档和导出；点击「开启多人共享」邀请成员共同编辑，修改按版本同步，冲突时保留本机草稿。</p>
+              <p>先登录，再选择项目。打开项目会自动登记本人资料到人员名册；新建项目自动开通共享管理。可邀请成员协作，也可打开已加入的服务项目查看任务与排班。</p>
             </div>
           </div>
           <div id="projectsToolbar" class="assets-toolbar"></div>
@@ -212,7 +229,7 @@
           <div class="panel-head">
             <div>
               <h2>全周期任务</h2>
-              <p>覆盖前期策划—活动筹备—现场执行—活动收尾；可切换表格、甘特与阶段门禁三种视图。</p>
+              <p>开始执行 → 提交交付依据 → 组织者验收。受阻需记录原因；签到与班次时长单独统计。从任务行「安排人员」分配服务人员和班次。</p>
             </div>
             <div class="panel-actions">
               <button class="button button-primary" id="generateWbs"><span>✦</span> AI 生成任务分解</button>
@@ -227,6 +244,8 @@
             <button data-taskview="gantt">进度甘特</button>
             <button data-taskview="gate">阶段检查点</button>
           </div>
+          <div id="taskAssignmentPanel"></div>
+          <div id="taskActionPanel"></div>
           <div id="taskViewBody"></div>
         </section>
 
@@ -275,14 +294,25 @@
           <div class="panel-head">
             <div>
               <h2>人员与资源</h2>
-              <p>把人员、场地、设备、物料、经费与车辆登记成台账；「已安排」超过「可用数量」会立即标红。</p>
-              <p id="resourceSummary" class="skill-summary"></p>
+              <p>服务人员管理入组、资料与考勤；物资与资源管理库存、借还和采购凭证。安排人员请从「全周期任务」进入。</p>
             </div>
           </div>
-          <div id="resourcesToolbar" class="assets-toolbar"></div>
-          <div id="resourcesStats"></div>
-          <div id="resourceConflicts"></div>
-          <div id="resourceTable"></div>
+          <div class="seg-switch resource-sections" aria-label="人员与物资分类">
+            <button type="button" data-resource-section="personnel" aria-controls="personnelSection">服务人员</button>
+            <button type="button" data-resource-section="inventory" aria-controls="inventorySection">物资与资源</button>
+          </div>
+          <section id="personnelSection" aria-label="服务人员">
+            <div id="personnelPanel"></div>
+            <div id="legacyStaffTable"></div>
+          </section>
+          <section id="inventorySection" class="hidden" aria-label="物资与资源">
+            <div class="staff-banner"><h3>物资与资源台账</h3><p>统一维护物料、设备、场地、车辆和经费；采购发票与凭证关联到对应资源。</p></div>
+            <p id="resourceSummary" class="skill-summary"></p>
+            <div id="resourcesToolbar" class="assets-toolbar"></div>
+            <div id="resourcesStats"></div>
+            <div id="resourceConflicts"></div>
+            <div id="resourceTable"></div>
+          </section>
         </section>
 
         <section class="panel hidden" id="drillsPanel">
@@ -364,7 +394,10 @@
     <script src="./schemas.js"></script>
     <script src="./materials.js"></script>
     <script src="./core/util.js"></script>
+    <script src="./core/deliveries.js"></script><script src="./core/task-lifecycle.js"></script>
     <script src="./core/library.js"></script>
+    <script src="./core/personnel.js"></script>
+    <script src="./core/inventory.js"></script>
     <script src="./core/qr.js"></script>
     <script src="./core/signup.js"></script>
     <script src="./core/store.js"></script>

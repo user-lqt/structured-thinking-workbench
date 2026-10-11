@@ -40,6 +40,7 @@ window.WB.views = window.WB.views || {};
         ${FILTERS.map((item) => `<button data-project-filter="${item.value}" class="${(current.ui.projectFilter || 'active') === item.value ? 'is-active' : ''}">${escapeHtml(item.label)}</button>`).join('')}
       </div>
       <div class="panel-actions">
+        ${window.WB.personnel?.account ? '<button class="button button-ghost" data-service-project-refresh data-personnel-control>刷新可加入项目</button>' : ''}
         ${window.WB.sync?.controls() || ''}
         <button class="button button-primary" data-project-new ${canWrite ? '' : 'disabled'} title="${canWrite ? '' : '当前身份为只读访客或活动成员，只有活动组织者可以新建项目'}">＋ 新建项目</button>
         <button class="button button-ghost" data-project-import>导入项目包</button>
@@ -63,7 +64,7 @@ window.WB.views = window.WB.views || {};
         ${item.archived ? '<span class="project-badge is-muted">已归档</span>' : ''}
       </div>
       <div class="project-progress">
-        <span>任务完成度</span>
+        <span>已验收占比</span>
         <div class="bar"><i style="width:${percent}%"></i></div>
         <b>${percent}%</b>
       </div>
@@ -96,13 +97,12 @@ window.WB.views = window.WB.views || {};
       : `<div class="card"><div class="empty"><strong>这里还没有项目</strong>
           ${filter === 'archived' ? '归档的项目会出现在这里。' : '点击「＋ 新建项目」开始第一场活动，或导入此前导出的项目包。'}
         </div></div>`;
+    const remote = (window.WB.personnel?.catalogue || []).filter((p) => !current.projects.some((item) => item.id === p.id));
+    if (remote.length) $('#projectList').innerHTML += `<div class="card-title staff-banner"><h3>可打开的服务项目</h3><small>打开后自动登记账号资料；新成员等待负责人确认</small></div><div class="project-grid" data-personnel-control>${remote.map((p) => `<article class="project-card"><h3>${escapeHtml(p.name)}</h3><p>${p.membership ? ({ pending: '待确认', active: '已加入', inactive: '已停用' }[p.membership] || p.membership) : '首次打开需项目加入码'}</p>${p.membership ? '' : `<label>项目加入码<input class="service-project-code" data-service-code="${escapeHtml(p.id)}" /></label>`}<button class="button button-primary" data-service-project-open="${escapeHtml(p.id)}">${p.membership ? '打开我的任务与排班' : '打开并自动登记'}</button></article>`).join('')}</div>`;
   }
 
   function openProject(id) {
-    if (id === state().activeId) { window.WB.switchView('overview'); return; }
-    if (!store().switchProject(id)) { window.WB.toast('项目打开失败，本地数据可能已损坏'); return; }
-    window.WB.renderAll();
-    window.WB.toast(`已切换到「${store().projectName()}」`);
+    return window.WB.openProject(id);
   }
 
   function renameProject(id) {
@@ -117,10 +117,11 @@ window.WB.views = window.WB.views || {};
     window.WB.renderAll();
   }
 
-  function duplicateProject(id) {
+  async function duplicateProject(id) {
     if (!canManage()) { window.WB.toast('只有活动组织者可以复制项目'); return; }
     const newId = store().duplicateProject(id);
     if (!newId) { window.WB.toast('复制失败：项目内容不可读'); return; }
+    if (window.WB.personnel.account && !await window.WB.openProject(newId)) return;
     window.WB.renderAll();
     window.WB.toast('已复制为一份新项目，可直接修改');
   }
@@ -151,7 +152,16 @@ window.WB.views = window.WB.views || {};
     const panel = $('#projectsPanel');
     const input = $('#projectBundleFile');
 
-    panel.addEventListener('click', (event) => {
+    panel.addEventListener('click', async (event) => {
+      const refresh = event.target.closest('[data-service-project-refresh]');
+      if (refresh) { refresh.disabled = true; try { await window.WB.personnel.restore(); render(); } catch (error) { window.WB.toast(error.message); refresh.disabled = false; } return; }
+      const service = event.target.closest('[data-service-project-open]');
+      if (service) {
+        service.disabled = true;
+        try { await window.WB.personnel.openPortalProject(service.dataset.serviceProjectOpen, service.closest('article').querySelector('[data-service-code]')?.value || ''); }
+        catch (error) { window.WB.toast(error.message); service.disabled = false; }
+        return;
+      }
       const filter = event.target.closest('[data-project-filter]');
       if (filter) {
         state().ui.projectFilter = filter.dataset.projectFilter;
@@ -165,6 +175,7 @@ window.WB.views = window.WB.views || {};
         store().log('project', '新建项目');
         store().save();
         window.WB.renderAll();
+        if (window.WB.personnel.account) { try { await window.WB.personnel.enterWorkbench(); } catch (error) { window.WB.toast(error.message); } }
         window.WB.openWizard();
         return;
       }
@@ -177,7 +188,7 @@ window.WB.views = window.WB.views || {};
         return;
       }
       const open = event.target.closest('[data-project-open]');
-      if (open) { openProject(open.dataset.projectOpen); return; }
+      if (open) { open.disabled = true; try { await openProject(open.dataset.projectOpen); } finally { open.disabled = false; } return; }
       const rename = event.target.closest('[data-project-rename]');
       if (rename) { renameProject(rename.dataset.projectRename); return; }
       const duplicate = event.target.closest('[data-project-duplicate]');
@@ -195,6 +206,7 @@ window.WB.views = window.WB.views || {};
       try {
         const bundle = JSON.parse(await file.text());
         const id = store().importBundle(bundle, { asNew: true });
+        if (window.WB.personnel.account && !await window.WB.openProject(id)) return;
         window.WB.renderAll();
         window.WB.toast(`已导入为新项目（${store().projects.find((item) => item.id === id)?.name || '未命名活动'}）`);
       } catch (error) {

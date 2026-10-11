@@ -19,7 +19,7 @@ window.WB = window.WB || {};
   /* 这些键属于「单个项目」，按项目分文件存储；其余属于全局索引。 */
   const DOC_KEYS = ['project', 'wbs', 'risks', 'riskCompliance', 'options', 'gates', 'gateMeta',
     'materials', 'templates', 'materialTemplates', 'materialSections', 'references', 'fillDrafts', 'assets', 'poster', 'resources', 'drills',
-    'workflow', 'signup', 'log'];
+    'workflow', 'signup', 'log', 'resourceMaterialBackup'];
 
   const nowIso = () => new Date().toISOString();
 
@@ -53,6 +53,7 @@ window.WB = window.WB || {};
       assets: [],
       poster: {},
       resources: [],
+      resourceMaterialBackup: null,
       drills: [],
       /* 卡片工作流：每张卡片 = 一个 agent（技能包 + 引用资料 + 再要求 → 输出文本），可拖拽排序 */
       workflow: { cards: [] },
@@ -73,7 +74,7 @@ window.WB = window.WB || {};
       ui: {
         taskView: 'table', materialPhase: 'all', openMaterial: null,
         riskFilter: null, gatePhase: 'plan', assetKind: '', assetPhase: '',
-        resourceKind: '', resourcePhase: '', drillId: null, drillCategory: '', projectFilter: 'active',
+        resourceSection: 'personnel', resourceKind: '', resourcePhase: '', drillId: null, drillCategory: '', projectFilter: 'active',
         flowImmersive: false   /* 「放大画布」：个人习惯，跟 taskView / 筛选同一层，存在本机索引里 */
       }
     };
@@ -82,17 +83,20 @@ window.WB = window.WB || {};
   /* ── 归一化 ───────────────────────────── */
 
   function normaliseRow(row) {
+    const lifecycle = window.WB.taskLifecycle.normalise({ ...row, id: row.id || uid('task') });
     return {
-      id: row.id || uid('task'),
+      id: lifecycle.id,
       phase: window.WB.util.PHASE_ORDER[row.phase] != null ? row.phase : 'plan',
       task: text(row.task),
       owner: text(row.owner),
+      responsiblePersonId: text(row.responsiblePersonId),
       due: text(row.due),
       duration: row.duration === '' || row.duration == null ? '' : Number(row.duration) || '',
       output: text(row.output),
       depends: text(row.depends),
-      status: ['todo', 'doing', 'blocked', 'done'].includes(row.status) ? row.status : 'todo',
-      progress: Number.isFinite(Number(row.progress)) ? Math.min(100, Math.max(0, Math.round(Number(row.progress)))) : 0,
+      status: lifecycle.status, lifecycle: lifecycle.lifecycle, legacyReporting: lifecycle.legacyReporting,
+      blocked: lifecycle.blocked, blockReason: lifecycle.blockReason, needsVerification: lifecycle.needsVerification,
+      ...(row.importedLifecycle ? { importedLifecycle: lifecycle.importedLifecycle } : {}),
       milestone: row.milestone === true || row.milestone === 'true' || row.milestone === 'yes',
       source: row.source || 'user'
     };
@@ -128,6 +132,10 @@ window.WB = window.WB || {};
       assigned: Number.isFinite(assigned) ? Math.max(0, assigned) : 0,
       owner: text(item.owner),
       note: text(item.note),
+      loaned: Math.max(0, Number(item.loaned) || 0),
+      unitCost: Math.max(0, Number(item.unitCost) || 0),
+      location: text(item.location), supplier: text(item.supplier), condition: text(item.condition) || '待核验',
+      invoices: Array.isArray(item.invoices) ? JSON.parse(JSON.stringify(item.invoices)) : [],
       source: item.source || 'user'
     };
   }
@@ -222,6 +230,7 @@ window.WB = window.WB || {};
     doc.risks = (raw.risks || []).map(normaliseRisk);
     doc.riskCompliance = Array.isArray(raw.riskCompliance) ? raw.riskCompliance.map(String) : [];
     doc.materials = raw.materials || {};
+    window.WB.deliveries.normalise(doc);
     doc.templates = raw.templates || [];
     doc.materialTemplates = raw.materialTemplates || {};
     doc.materialSections = raw.materialSections && typeof raw.materialSections === 'object' ? raw.materialSections : {};
@@ -231,6 +240,7 @@ window.WB = window.WB || {};
     doc.assets = Array.isArray(raw.assets) ? raw.assets.filter((item) => item && typeof item === 'object') : [];
     doc.poster = raw.poster && typeof raw.poster === 'object' ? raw.poster : {};
     doc.resources = Array.isArray(raw.resources) ? raw.resources.map(normaliseResource) : [];
+    doc.resourceMaterialBackup = raw.resourceMaterialBackup && typeof raw.resourceMaterialBackup === 'object' ? raw.resourceMaterialBackup : null;
     doc.drills = Array.isArray(raw.drills) ? raw.drills.map(normaliseDrill) : [];
     doc.workflow = normaliseWorkflow(raw.workflow);
     doc.signup = window.WB.signup ? window.WB.signup.normalise(raw.signup) : doc.signup;
@@ -269,7 +279,11 @@ window.WB = window.WB || {};
     entry.tasks = index.wbs.length;
     entry.risks = index.risks.length;
     entry.materials = Object.keys(index.materials || {}).length;
-    entry.percent = window.WB.wbs ? window.WB.wbs.overall(index.wbs).percent : 0;
+    entry.percent = acceptedPercent(index.wbs);
+  }
+
+  function acceptedPercent(rows) {
+    return rows.length ? Math.round(rows.filter((row) => window.WB.taskLifecycle.replay(row).status === 'accepted').length / rows.length * 100) : 0;
   }
 
   function indexPayload() {
@@ -287,6 +301,9 @@ window.WB = window.WB || {};
 
   function save() {
     try {
+      state.wbs = state.wbs.map(normaliseRow);
+      window.WB.inventory?.sync(state);
+      window.WB.deliveries.normalise(state);
       if (state.activeId) {
         const doc = { ...docOf(state), id: state.activeId, updatedAt: nowIso() };
         localStorage.setItem(DOC_PREFIX + state.activeId, JSON.stringify(doc));
@@ -324,7 +341,7 @@ window.WB = window.WB || {};
       tasks: doc.wbs.length,
       risks: doc.risks.length,
       materials: Object.keys(doc.materials || {}).length,
-      percent: 0,
+      percent: acceptedPercent(doc.wbs),
       archived: false,
       ...extra
     };
@@ -337,7 +354,10 @@ window.WB = window.WB || {};
       if (index && typeof index === 'object' && Array.isArray(index.projects)) {
         const next = freshState();
         next.user = index.user && index.user.name ? index.user : null;
-        next.projects = index.projects;
+        next.projects = index.projects.map((item) => {
+          const doc = readDoc(item.id);
+          return { ...item, percent: doc ? acceptedPercent(doc.wbs) : 0 };
+        });
         next.activeId = index.projects.some((item) => item.id === index.activeId) ? index.activeId : (index.projects[0]?.id || null);
         next.view = index.view || 'overview';
         next.ui = { ...freshState().ui, ...(index.ui || {}) };

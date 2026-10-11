@@ -77,8 +77,8 @@ window.SKILLS = {
     statuses: [
       { value: 'todo', label: '未开始' },
       { value: 'doing', label: '进行中' },
-      { value: 'blocked', label: '受阻' },
-      { value: 'done', label: '已完成' }
+      { value: 'review', label: '待验收' },
+      { value: 'accepted', label: '已验收' }
     ],
     columns: [
       { key: 'phase', label: '阶段', type: 'enum', locked: true, width: '112px' },
@@ -88,8 +88,7 @@ window.SKILLS = {
       { key: 'duration', label: '工期(天)', type: 'number', width: '76px' },
       { key: 'output', label: '产出物', type: 'text', width: '180px' },
       { key: 'depends', label: '前置任务', type: 'text', width: '160px' },
-      { key: 'status', label: '状态', type: 'enum', locked: true, width: '92px' },
-      { key: 'progress', label: '完成度%', type: 'number', width: '82px' },
+      { key: 'status', label: '执行与验收', type: 'readonly', locked: true, width: '240px' },
       { key: 'milestone', label: '里程碑', type: 'enum', locked: true, width: '86px' },
       { key: 'source', label: '来源', type: 'enum', locked: true, width: '88px' }
     ]

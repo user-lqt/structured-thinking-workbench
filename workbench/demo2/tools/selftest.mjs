@@ -80,7 +80,7 @@ globalThis.window.clearInterval = noop;
 
 const MODULES = [
   'schemas.js', 'materials.js',
-  'core/util.js', 'core/library.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/sync.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
+  'core/util.js', 'core/deliveries.js', 'core/task-lifecycle.js', 'core/library.js', 'core/personnel.js', 'core/inventory.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/sync.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/agenda.js', 'views/tasks.js', 'views/decision.js',
   'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/workflow.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
@@ -166,10 +166,10 @@ check('项目信息表-日期与起止时间不再是独立字段（由活动日
     cleared.date === '' && cleared.start === '' && cleared.end === '');
 }
 check('产出清单项数 = 21', U.OUTPUT_ITEMS.length === 21, `实际 ${U.OUTPUT_ITEMS.length}`);
-check('任务分解列数 = 11', WBS.columns.length === 11, `实际 ${WBS.columns.length}`);
+check('任务分解列数 = 10（无手填百分比）', WBS.columns.length === 10 && !WBS.columns.some((item) => item.key === 'progress'), `实际 ${WBS.columns.length}`);
 check('阶段数为 4', WBS.phases.length === 4);
-check('任务状态覆盖 todo/doing/blocked/done',
-  ['todo', 'doing', 'blocked', 'done'].every((s) => WBS.statuses.some((item) => item.value === s)));
+check('任务生命周期覆盖 todo/doing/review/accepted',
+  ['todo', 'doing', 'review', 'accepted'].every((s) => WBS.statuses.some((item) => item.value === s)));
 check('四个阶段都有门禁检查点',
   WBS.phases.every((phase) => (GATES[phase.value] || []).length >= 5));
 check('方案比选量表为 1–5', DECISION.scale.map((s) => s.value).join(',') === '1,2,3,4,5');
@@ -618,7 +618,7 @@ const X = window.WB.exporters;
 const cases = [
   ['项目信息表 Markdown', X.manifestToMarkdown(), ['#', '产出']],
   ['任务分解 Markdown', X.wbsToMarkdown(), ['前期策划', '活动收尾']],
-  ['任务分解 CSV', X.wbsToCsv(), ['阶段', '完成度']],
+  ['任务分解 CSV', X.wbsToCsv(), ['阶段', '生命周期', '历史填报百分比']],
   ['阶段检查点 Markdown', X.gatesToMarkdown(), ['检查点', '前期策划']],
   ['方案比选 Markdown', X.decisionToMarkdown(), ['候选方案', '加权得分', '决策结论']],
   ['风险预案 Markdown', X.riskPlanToMarkdown(), ['高风险', '分级应急预案']],
@@ -1497,9 +1497,10 @@ store.signOut();
 
 /* 导出在新视图上也要有内容 */
 store.importBundle(JSON.parse(JSON.stringify(bundle)));
-store.state.resources = [store.normaliseResource({ name: '志愿者', kind: 'staff', available: 2, assigned: 5, unit: '人' })];
+store.state.resources = [store.normaliseResource({ name: '志愿者', kind: 'staff', available: 2, assigned: 5, unit: '人' }), store.normaliseResource({ name: '指示牌', kind: 'material', available: 2, assigned: 5, unit: '件' })];
 const resourceMd = X.resourcesToMarkdown();
 check('资源台账导出包含冲突自检', resourceMd.includes('占用冲突自检') && resourceMd.includes('缺口 3'), `长度 ${resourceMd.length}`);
+check('导出分开历史人员汇总和物资资源，人员汇总没有发票列', resourceMd.includes('## 历史人员需求汇总') && resourceMd.includes('## 物资与资源') && !resourceMd.split('## 物资与资源')[0].includes('发票'));
 store.state.drills = [store.normaliseDrill({ id: 'd', scenarioId: 'venue-unavailable', title: '主场地临时不可用', category: 'venue', phase: 'execute', status: 'done', finishedAt: new Date().toISOString(), decisions: '换场地', outcome: '12 分钟内完成', steps: [{ text: '确认封锁范围', done: true, note: '' }] })];
 const drillMd = X.drillsToMarkdown();
 check('演练导出包含步骤与结论', drillMd.includes('主场地临时不可用') && drillMd.includes('确认封锁范围') && drillMd.includes('12 分钟内完成'), `长度 ${drillMd.length}`);
@@ -4122,6 +4123,149 @@ check('箭头跟线一个色（marker 里的 path 不写 fill 默认是纯黑，
     check('资料库：访客不能通过 API 新建资料', window.WB.views.assets.addAsset({ name: '非法修改', kind: 'text' }) === false && store.state.assets.length === before);
     check('资料库：访客不能通过 API 修改正文', window.WB.views.assets.setField(store.state.assets[0], 'content', '非法修改') === false && store.state.assets[0].content === '更新后的规范');
   } finally { store.state = saved; }
+}
+
+{
+  const inventory = window.WB.inventory;
+  const raw = store.freshState(); raw.project = store.freshProject(); raw.project.outputs.materialList = true;
+  raw.resources = [{ id: 'inventory-test', name: '指示牌', kind: 'material', phase: 'prepare', unit: '件', available: 5, assigned: 6, loaned: 2, unitCost: 10, location: '库房', owner: '后勤' }];
+  const old = { title: '旧清单', source: 'user', sections: [{ heading: '清单', body: '| 物料名称 | 数量 | 单位 | 单价 |\n| --- | --- | --- | --- |\n| 横幅 | 2 | 条 | 30 |' }] };
+  raw.materials.materialList = old;
+  inventory.sync(raw);
+  check('资源：清单投影保留旧正文备份', raw.resourceMaterialBackup.title === '旧清单' && raw.materials.materialList.source === 'resource-ledger');
+  check('资源：清单包含借出、单价、地点与净可用', raw.materials.materialList.sections[0].body.includes('| 5 | 6 | 2 | 3 | 3 | 10 | 60.00 | 库房 |'));
+  raw.resources[0].assigned = 3; inventory.sync(raw);
+  check('资源：修改台账实时更新清单，不改旧备份', raw.materials.materialList.sections[0].body.includes('| 5 | 3 | 2 | 3 | 0 | 10 | 30.00 |') && raw.resourceMaterialBackup.sections[0].body.includes('横幅'));
+  const rows = inventory.legacyRows(old);
+  check('资源：旧清单需求与库存分开迁移', rows.length === 1 && rows[0].assigned === 2 && rows[0].available === 0 && rows[0].unitCost === 30);
+  check('资源：项目迁移保留库存新字段和原稿', store.migrateDoc(raw).resources[0].loaned === 2 && store.migrateDoc(raw).resourceMaterialBackup.title === '旧清单');
+  check('资源：借出影响可用量与缺口', window.WB.views.resources.check({ available: 5, assigned: 4, loaned: 2, unit: '件' }).level === 'over');
+  const attachment = { id: 'invoice-test', name: '采购发票.pdf', size: 12, stored: true, dataUrl: 'data:application/pdf;base64,JVBERg==' };
+  old.invoices = { '0:0:0': [attachment] };
+  check('资源：旧物料行的发票随对应资源迁移', inventory.legacyRows(old)[0].invoices[0].id === 'invoice-test');
+  raw.resources[0].invoices = [attachment];
+  inventory.sync(raw);
+  check('资源：派生物料清单显示采购发票文件名', raw.materials.materialList.sections[0].body.includes('采购发票.pdf'));
+  check('资源：项目迁移保留发票原件', store.migrateDoc(raw).resources[0].invoices[0].dataUrl === attachment.dataUrl);
+}
+
+/* 任务状态只能来自执行与验收操作，旧百分比只保留为历史。 */
+{
+  const T = window.WB.taskLifecycle;
+  let serial = 0;
+  const context = (role = 'organizer') => ({ id: `evt-${++serial}`, at: new Date(1800000000000 + serial * 1000).toISOString(),
+    origin: 'local', actor: { id: `test-${role}`, personId: `person-${role}`, name: `测试${role}`, role } });
+  const act = (row, kind, fields = {}, role = 'organizer') => T.apply(row, { kind, deliveries: [{ materialId: 'MAT-proposal', versionId: 'delivery-test' }], ...fields }, context(role));
+  const rejects = (fn) => { try { fn(); return false; } catch (error) { return error.status === 422; } };
+  const legacy = ['todo', 'doing', 'blocked', 'done', 'review', 'accepted'].map((status) => store.normaliseRow({ id: `legacy-${status}`, task: status, status, progress: 80 }));
+  check('任务：迁移保留原始状态及百分比，移除活动百分比', legacy.every((row) => row.legacyReporting.progress === 80 && !Object.hasOwn(row, 'progress') && row.legacyReporting.status === row.task));
+  check('任务：旧未开始80%仍未开始，百分比不计验收', legacy[0].status === 'todo' && window.WB.wbs.overall([legacy[0]]).percent === 0);
+  check('任务：旧受阻迁移为进行中加独立标记', legacy[2].status === 'doing' && legacy[2].blocked && legacy[2].blockReason === '');
+  check('任务：旧完成声明均待核实，无伪造验收', legacy.slice(3).every((row) => row.needsVerification && row.status === 'doing' && row.lifecycle.events.length === 0 && !T.replay(row).acceptance));
+  check('任务：迁移幂等且历史不丢', legacy.every((row) => JSON.stringify(store.normaliseRow(row)) === JSON.stringify(row)));
+  check('任务：历史完成和百分比不支持已验收统计', window.WB.wbs.overall(legacy).done === 0 && window.WB.wbs.overall(legacy).percent === 0);
+  let row = store.normaliseRow({ id: 'lifecycle-test', responsiblePersonId: 'person-organizer', phase: 'plan', task: '交付方案', output: '方案文件', milestone: true, lifecycle: T.fresh() });
+  check('任务：新任务无历史百分比', row.status === 'todo' && row.legacyReporting === null && !Object.hasOwn(row, 'progress'));
+  check('任务：未开始不能提交或直接验收', rejects(() => act(row, 'submit', { evidence: '文件' })) && rejects(() => act(row, 'approve', { note: '通过' })));
+  row = act(row, 'block', { note: '等待场地确认' });
+  check('任务：受阻不替代未开始状态，并记录原因', row.status === 'todo' && row.blocked && row.blockReason === '等待场地确认');
+  check('任务：受阻原因必填', rejects(() => act(row, 'block', { note: ' ' })));
+  row = act(row, 'start', {}, 'member');
+  check('任务：成员开始执行，独立受阻保留', row.status === 'doing' && row.blocked);
+  check('任务：受阻不能提交', rejects(() => act(row, 'submit', { evidence: '文件' })));
+  row = act(row, 'unblock');
+  check('任务：解除受阻不改变生命周期', row.status === 'doing' && !row.blocked && row.blockReason === '');
+  check('任务：重复开始或无交付依据被拒', rejects(() => act(row, 'start')) && rejects(() => act(row, 'submit', { evidence: ' ' })));
+  row = act(row, 'submit', { evidence: '材料库：方案v1.pdf，章节已核对' }, 'member');
+  check('任务：提交生成可关联的依据与待验收状态', row.status === 'review' && T.replay(row).submission.evidence.includes('方案v1.pdf'));
+  check('任务：成员不得验收或退回', rejects(() => act(row, 'approve', { note: '通过' }, 'member')) && rejects(() => act(row, 'reject', { note: '整改' }, 'member')));
+  check('任务：组织者验收或退回需结论', rejects(() => act(row, 'approve')) && rejects(() => act(row, 'reject')));
+  row = act(row, 'reject', { note: '补充预算依据' });
+  check('任务：退回到进行中，不生成90%等百分比', row.status === 'doing' && !T.replay(row).acceptance && !Object.hasOwn(row, 'progress'));
+  row = act(row, 'submit', { evidence: '方案v2.pdf，已补预算' }, 'member');
+  row = act(row, 'approve', { note: '核对方案v2及预算附件，符合要求' });
+  const accepted = JSON.parse(JSON.stringify(row));
+  check('任务：已验收关联当前提交和人工结论', row.status === 'accepted' && T.replay(row).acceptance.submissionId === T.replay(row).submission.id);
+  check('任务：已验收占比按任务数计算，受阻另计', window.WB.wbs.overall([row, ...legacy]).percent === 14 && window.WB.wbs.overall([row, ...legacy]).milestonesDone === 1);
+  check('任务：篡改状态和百分比不能改变有效验收', T.normalise({ ...row, status: 'todo', progress: 10 }).status === 'accepted' && !Object.hasOwn(T.normalise({ ...row, progress: 10 }), 'progress'));
+  const scopeChanged = T.normalise({ ...row, output: '新交付标准' });
+  check('任务：交付标准变更使原验收失效并待核实', scopeChanged.status !== 'accepted' && scopeChanged.needsVerification && !T.replay(scopeChanged).acceptance);
+  const last = row.lifecycle.events.at(-1), forge = (patch) => T.normalise({ ...row, lifecycle: { ...row.lifecycle, events: [...row.lifecycle.events.slice(0, -1), { ...last, ...patch }] } });
+  for (const patch of [{ taskId: 'other' }, { at: 'not-a-date' }, { at: '2020-01-01' }, { id: row.lifecycle.events[0].id }, { actor: { id: 'x', name: 'x', role: 'member' } }, { submissionId: 'wrong' }, { note: '' }, { origin: 'ai' }]) {
+    check(`任务：无效验收记录不支持已验收 ${JSON.stringify(patch)}`, forge(patch).status !== 'accepted' && forge(patch).needsVerification);
+  }
+  const textOnly = structuredClone(row);
+  for (const e of textOnly.lifecycle.events) { delete e.deliveries; delete e.linkVersion; delete e.responsiblePersonId; }
+  const missingLinks = T.normalise(textOnly);
+  check('关联：旧纯文字验收保留事件但待核实，不再计已验收', missingLinks.status === 'review' && missingLinks.needsVerification && missingLinks.lifecycle.events.length === row.lifecycle.events.length);
+  check('关联：责任人缺失或更换使旧验收不可套用', T.normalise({ ...row, responsiblePersonId: '' }).status !== 'accepted' && T.normalise({ ...row, responsiblePersonId: 'other' }).status !== 'accepted');
+  check('关联：实名与交付关联必需，说明文字不能代替', rejects(() => act({ ...row, status: 'doing', lifecycle: { ...T.fresh(), baseStatus: 'doing' } }, 'submit', { evidence: '方案名称', deliveries: [] })));
+  check('关联：验收记录版本不得替换', forge({ deliveries: [{ materialId: 'MAT-proposal', versionId: 'another-version' }] }).status !== 'accepted');
+  const noSubmit = T.normalise({ ...row, lifecycle: { ...T.fresh(), events: [last] } });
+  check('任务：孤立验收记录无效，不伪造提交', noSubmit.status !== 'accepted' && noSubmit.lifecycle.events.length === 1 && noSubmit.needsVerification);
+  const sharedCopy = T.forSharedImport(row);
+  check('任务：导入共享保留原记录为历史并重新核验', sharedCopy.status === 'doing' && sharedCopy.needsVerification && !sharedCopy.lifecycle.events.length && sharedCopy.importedLifecycle.events.at(-1).kind === 'approve');
+  const importedAgain = T.forSharedImport(act(act(sharedCopy, 'submit', { evidence: '重新提交' }), 'approve', { note: '新共享验收' }));
+  check('任务：再次共享导入保留本轮和前轮验收历史', importedAgain.importedLifecycle.events.at(-1).note === '新共享验收' && importedAgain.importedLifecycle.previousImport.events.at(-1).kind === 'approve');
+  row = act(row, 'reject', { note: '发现新的交付问题，重新核验' });
+  check('任务：已验收可由组织者退回，历史验收保留', row.status === 'doing' && !T.replay(row).acceptance && row.lifecycle.events.some((event) => event.kind === 'approve'));
+  const saved = store.state, run = window.WB.ai.run, render = window.WB.renderAll, toast = window.WB.toast;
+  try {
+    window.WB.renderAll = noop; window.WB.toast = noop;
+    store.state = store.freshState(); store.setUser({ name: '任务测试', role: 'organizer' }); store.createProject({ name: '任务测试' });
+    store.state.wbs = [accepted, ...legacy]; store.save();
+    const migrated = store.migrateDoc(JSON.parse(localStorage.getItem(store.DOC_PREFIX + store.state.activeId)));
+    check('任务：落盘再载入保留有效验收与原填报', migrated.wbs[0].status === 'accepted' && migrated.wbs[0].lifecycle.events.length === accepted.lifecycle.events.length && migrated.wbs[1].legacyReporting.progress === 80);
+    const bundle = JSON.parse(JSON.stringify(store.exportBundle()));
+    store.importBundle(bundle);
+    check('任务：项目包往返验收不丢且不伪造记录', store.state.wbs[0].status === 'accepted' && store.state.wbs[4].needsVerification && store.state.wbs[4].lifecycle.events.length === 0);
+    check('任务：导出标明生命周期与历史填报', window.WB.exporters.wbsToCsv().includes('历史填报百分比') && window.WB.exporters.wbsToMarkdown().includes('核对方案v2及预算附件'));
+    store.state.wbs[0].source = 'ai';
+    window.WB.ai.run = async () => ({ rows: [{ id: accepted.id, task: 'AI规划', output: '草案', phase: 'plan', status: 'accepted', progress: 100, lifecycle: accepted.lifecycle }] });
+    await window.WB.views.tasks.generate();
+    const aiRow = store.state.wbs.find((item) => item.task === 'AI规划');
+    check('任务：AI不得指定状态、百分比、编号或验收记录', aiRow.status === 'todo' && aiRow.id !== accepted.id && !aiRow.lifecycle.events.length && aiRow.legacyReporting === null && !Object.hasOwn(aiRow, 'progress'));
+    check('任务：AI重生成保留已执行及旧填报任务', store.state.wbs.some((item) => item.id === accepted.id && item.status === 'accepted') && legacy.every((old) => store.state.wbs.some((item) => item.id === old.id)));
+    const before = JSON.stringify(store.state.wbs);
+    store.setUser({ name: '只读任务测试', role: 'viewer' });
+    let denied = false;
+    try { await window.WB.views.tasks.executeAction(aiRow.id, { kind: 'start' }); } catch { denied = true; }
+    check('任务：只读权限在操作函数内再次校验且不写入', denied && JSON.stringify(store.state.wbs) === before);
+    await window.WB.views.tasks.generate();
+    check('任务：只读权限不得生成任务', JSON.stringify(store.state.wbs) === before);
+    window.WB.views.tasks.render();
+    const html = document.getElementById('taskViewBody').innerHTML;
+    check('任务：界面无状态下拉和百分比输入', !html.includes('data-key="progress"') && !html.includes('data-key="status"') && html.includes('data-task-history='));
+    check('任务：只读任务操作按钮禁用', /data-task-action="start"[^>]+disabled/.test(html));
+    store.setUser({ name: '成员任务测试', role: 'member' });
+    denied = false;
+    try { await window.WB.views.tasks.executeAction(accepted.id, { kind: 'reject', note: '越权' }); } catch { denied = true; }
+    check('任务：成员直接调用退回函数也被拒', denied && JSON.stringify(store.state.wbs) === before);
+    check('任务：日期、考勤时长不影响验收状态', T.normalise({ ...aiRow, due: 'D-999', attendanceMs: 99999999 }).status === 'todo');
+  } finally { store.state = saved; window.WB.ai.run = run; window.WB.renderAll = render; window.WB.toast = toast; }
+}
+
+{
+  const D = window.WB.deliveries;
+  const doc = { materials: { proposal: { title: '原名称', source: 'ai', sections: [{ heading: '内容', body: '实际正文' }], invoices: { row: [{ name: '发票.pdf', dataUrl: 'data:application/pdf;base64,AA==' }] } } }, references: { proposal: { name: '参考表.docx', package: { files: ['原文件'] } } }, fillDrafts: { proposal: { slot: '实际填值' } } };
+  D.normalise(doc); const id = doc.materials.proposal.materialId;
+  const actor = { id: 'account', personId: 'person', name: '交付者', role: 'member' };
+  const v1 = D.publish(doc, 'proposal', { id: 'version-1', at: '2026-10-11T01:00:00Z', origin: 'server', actor });
+  doc.materials.proposal.title = '新名称'; doc.materials.proposal.sections[0].body = '第二版正文';
+  doc.fillDrafts.proposal.slot = '新值'; doc.references.proposal.package.files[0] = '新文件'; doc.materials.proposal.invoices.row[0].name = '新发票.pdf';
+  check('交付：重命名、正文和附件修改不改变已交快照', v1.snapshot.material.title === '原名称' && v1.snapshot.material.sections[0].body === '实际正文' && v1.snapshot.material.invoices.row[0].name === '发票.pdf');
+  check('交付：参考原包与真实填值独立冻结', v1.snapshot.fillDrafts.slot === '实际填值' && v1.snapshot.reference.package.files[0] === '原文件');
+  const v2 = D.publish(doc, 'proposal', { id: 'version-2', at: '2026-10-11T02:00:00Z', origin: 'server', actor });
+  check('交付：同一材料编号下追加版本，旧版本可精确查找', v2.number === 2 && doc.materials.proposal.materialId === id && D.resolve(doc, { materialId: id, versionId: v1.id }).version.snapshot.material.title === '原名称');
+  check('交付：材料名不能代替材料编号匹配', !D.resolve(doc, { materialId: '新名称', versionId: v2.id }) && !D.resolve(doc, { materialId: id, versionId: 'missing' }));
+  check('交付：AI 正文确认版本后编辑稿仍明确为草稿', doc.materials.proposal.aiDraft && doc.materials.proposal.deliveries.length === 2);
+  check('交付：导入版本不能冒充新项目已确认版本', D.normalise(structuredClone(doc), true).materials.proposal.deliveries.every((v) => v.origin === 'imported'));
+  check('交付：旧记录缺少编号或引用为空时不抛异常、不按名称推断', !D.validRefs([null]) && !D.validRefs([{ materialId: id, versionId: ' ' }]) && !D.resolve(doc, null));
+  check('交付：编号包含分隔符仍以材料和版本的完整组合区分', D.validRefs([{ materialId: 'a/b', versionId: 'c' }, { materialId: 'a', versionId: 'b/c' }]));
+  const empty = { materials: { empty: { title: '同名产出', sections: [{ heading: '交付正文', body: ' \n ' }] } } };
+  let refused = false;
+  try { D.publish(empty, 'empty', { id: 'empty-version', actor }); } catch { refused = true; }
+  check('交付：只有名称或空栏目不能形成可提交版本', refused && !empty.materials.empty.deliveries.length);
 }
 
 console.log(`\n结构化活动工作台 · 离线自测`);

@@ -145,8 +145,8 @@ window.WB = window.WB || {};
 }`;
 
   function resourceContract() {
-    const kinds = window.WB.util.RESOURCE_KINDS.map((kind) => kind.value).join('|');
-    return `{\n  "resources": [\n    { "name": "资源名称", "kind": "${kinds}", "phase": "plan|prepare|execute|close", "unit": "人|处|台|件|元|辆", "available": 1, "assigned": 0, "owner": "责任人角色", "note": "用途" }\n  ]\n}`;
+    const kinds = window.WB.util.RESOURCE_KINDS.filter((kind) => kind.value !== 'staff').map((kind) => kind.value).join('|');
+    return `{\n  "resources": [\n    { "name": "资源名称", "kind": "${kinds}", "phase": "plan|prepare|execute|close", "unit": "处|台|件|元|辆", "available": 1, "assigned": 0, "owner": "责任人角色", "note": "用途" }\n  ]\n}`;
   }
 
   const drillContract = () => `{\n  "steps": [{ "text": "责任角色 + 在多少分钟内 + 做什么" }],\n  "decisions": "关键决策与取舍依据，2 句以内",\n  "rollback": "恢复常态流程的量化条件与确认人",\n  "followUp": ["演练后要补进预案的改进项，最多 3 条"],\n  "risk": { "name": "", "trigger": "", "prevention": "", "response": "", "escalation": "", "owner": "" }\n}`;

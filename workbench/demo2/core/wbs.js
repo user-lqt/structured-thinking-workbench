@@ -4,29 +4,27 @@ window.WB = window.WB || {};
 (function () {
   const { PHASES, PHASE_LABEL, GATES, parseDue, dateFromDue, fmtDate, daysToEvent } = window.WB.util;
 
-  const progressOf = (row) => (row.status === 'done' ? 100 : row.progress || 0);
+  const taskState = (row) => window.WB.taskLifecycle.replay(row);
+
+  function taskStats(rows) {
+    const states = rows.map(taskState);
+    const count = (status) => states.filter((item) => item.status === status).length;
+    const done = count('accepted');
+    return { total: rows.length, done, accepted: done, todo: count('todo'), doing: count('doing'), review: count('review'),
+      blocked: states.filter((item) => item.blocked).length, verification: states.filter((item) => item.needsVerification).length,
+      percent: rows.length ? Math.round(done / rows.length * 100) : 0 };
+  }
 
   function phaseStats(rows, phase) {
     const items = rows.filter((row) => row.phase === phase);
-    const done = items.filter((row) => row.status === 'done').length;
-    const doing = items.filter((row) => row.status === 'doing').length;
-    const blocked = items.filter((row) => row.status === 'blocked').length;
-    const avg = items.length
-      ? Math.round(items.reduce((sum, row) => sum + (row.status === 'done' ? 100 : Number(row.progress) || 0), 0) / items.length)
-      : 0;
-    return { total: items.length, done, doing, blocked, todo: items.length - done - doing - blocked, percent: avg, items };
+    return { ...taskStats(items), items };
   }
 
   function overall(rows) {
-    const done = rows.filter((row) => row.status === 'done').length;
     return {
-      total: rows.length,
-      done,
-      doing: rows.filter((row) => row.status === 'doing').length,
-      blocked: rows.filter((row) => row.status === 'blocked').length,
-      percent: rows.length ? Math.round(rows.reduce((sum, row) => sum + (row.status === 'done' ? 100 : Number(row.progress) || 0), 0) / rows.length) : 0,
+      ...taskStats(rows),
       milestones: rows.filter((row) => row.milestone).length,
-      milestonesDone: rows.filter((row) => row.milestone && row.status === 'done').length
+      milestonesDone: rows.filter((row) => row.milestone && taskState(row).status === 'accepted').length
     };
   }
 
@@ -398,7 +396,7 @@ window.WB = window.WB || {};
   }
 
   window.WB.wbs = {
-    progressOf, phaseStats, overall, gateStats, gantt, offsetDays, timeline, daysLeft, gaps, gapTexts,
+    phaseStats, overall, gateStats, gantt, offsetDays, timeline, daysLeft, gaps, gapTexts,
     gateReview, autoTick, setGate, resumeAuto, gateMetaOf, gateRuleIds: Object.keys(GATE_RULES)
   };
 }());

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import vm from 'node:vm';
 import { sharedProjects } from './server/shared.mjs';
+import { personnelService } from './server/personnel.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '../..');
@@ -53,6 +54,8 @@ const REMOTE_POST = new Set(['/api/signup/submit']);
 const runtimeDir = process.env.DEMO2_DATA_DIR || path.join(here, 'generated');
 const JOIN_DIR = path.join(runtimeDir, 'join');
 const shared = sharedProjects(path.join(runtimeDir, 'shared'));
+const personnel = personnelService(path.join(runtimeDir, 'personnel'), shared);
+shared.configureLinks(personnel);
 const signupContext = { window: {}, TextEncoder, TextDecoder };
 vm.runInNewContext(readFileSync(path.join(here, 'core/signup.js'), 'utf8'), signupContext);
 const Signup = signupContext.window.WB.signup;
@@ -482,23 +485,28 @@ function submitAllowed(ip) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://127.0.0.1');
+    if (/\/generated\/personnel(?:\/|$)/i.test(decodeURIComponent(url.pathname))) return send(res, 403, { error: '人员账号与服务记录不能通过静态路径读取。' });
     /* 隧道（cloudflared）与反向代理会补上这几个头：请求虽然是 127.0.0.1 发来的，
        真正的访客却在公网——必须当成「非本机」处理，否则工作台页面和 AI 接口
        （里面是你的 API Key）会被隧道一起暴露出去。 */
     const forwarded = String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || '').split(',')[0].trim();
     const remote = Boolean(forwarded) || !isLoopback(req.socket?.remoteAddress);
     const clientIp = forwarded || String(req.socket?.remoteAddress || '');
-    const sharedId = String(url.pathname.match(/^\/api\/shared\/([A-Za-z0-9_-]+)$/)?.[1] || req.headers['x-project-id'] || '');
+    if (url.pathname.startsWith('/api/personnel/')) {
+      const body = req.method === 'POST' ? await readJson(req, 65536) : {};
+      return send(res, 200, await personnel.handle(req, url, body, clientIp));
+    }
+    const sharedId = String(url.pathname.match(/^\/api\/shared\/([A-Za-z0-9_-]+)(?:\/|$)/)?.[1] || req.headers['x-project-id'] || '');
     const session = sharedId ? shared.auth(req, sharedId) : null;
     if (session?.role === 'viewer' && ['POST', 'PUT', 'DELETE'].includes(req.method) && !REMOTE_POST.has(url.pathname)) return send(res, 403, { error: '只读邀请不能执行写入操作。' });
-    const appAsset = url.pathname === '/' || /^\/(?:index\.html|styles\.css|app\.js|schemas\.js|materials\.js)$/.test(url.pathname)
+    const appAsset = url.pathname === '/' || /^\/(?:index\.html|staff\.html|styles\.css|app\.js|schemas\.js|materials\.js)$/.test(url.pathname)
       || /^\/(?:core|views)\/[a-z][a-z0-9-]*\.js$/.test(url.pathname)
       || /^\/samples\/[^/]+\.(?:json|docx)$/.test(url.pathname);
     if (remote) {
       const allowed = req.method === 'GET' || req.method === 'HEAD'
         ? REMOTE_GET.has(url.pathname)
         : REMOTE_POST.has(url.pathname);
-      const sharedApi = /^\/api\/shared\/[A-Za-z0-9_-]+$/.test(url.pathname);
+      const sharedApi = /^\/api\/shared\/[A-Za-z0-9_-]+(?:\/tasks\/[^/]+(?:\/actions)?|\/materials\/[^/]+\/deliveries)?$/.test(url.pathname);
       const memberApi = session && (req.method === 'GET' && ['/api/health', '/api/skills', '/api/signup/queue'].includes(url.pathname)
         || session.role !== 'viewer' && ['/api/structure', '/api/material', '/api/template', '/api/image', '/api/signup/link'].includes(url.pathname));
       if (!allowed && !(appAsset && ['GET', 'HEAD'].includes(req.method)) && !sharedApi && !memberApi && !(session && session.role !== 'viewer' && url.pathname === '/api/signup/manage' && req.method === 'POST')) {
@@ -513,6 +521,29 @@ const server = http.createServer(async (req, res) => {
       const result = shared.create(body.doc, body.projectId);
       return send(res, result.status || 201, result);
     }
+    const taskAction = url.pathname.match(/^\/api\/shared\/[A-Za-z0-9_-]+\/tasks\/([^/]+)\/actions$/);
+    if (taskAction) {
+      if (!session) return send(res, 403, { error: '共享邀请无效或已失效。' });
+      if (req.method !== 'POST') return send(res, 405, { error: '仅支持 POST。' });
+      const body = await readJson(req);
+      const result = shared.taskAction(session, body.revision, decodeURIComponent(taskAction[1]), { kind: body.kind, note: body.note, evidence: body.evidence, deliveries: body.deliveries }, req);
+      return send(res, result.status || 200, result);
+    }
+    const taskDetails = url.pathname.match(/^\/api\/shared\/[A-Za-z0-9_-]+\/tasks\/([^/]+)$/);
+    if (taskDetails) {
+      if (!session) return send(res, 403, { error: '共享邀请无效。' });
+      if (req.method !== 'GET') return send(res, 405, { error: '仅支持 GET。' });
+      const result = shared.taskDetails(session, decodeURIComponent(taskDetails[1]));
+      return send(res, result.status || 200, result);
+    }
+    const delivery = url.pathname.match(/^\/api\/shared\/[A-Za-z0-9_-]+\/materials\/([^/]+)\/deliveries$/);
+    if (delivery) {
+      if (!session) return send(res, 403, { error: '共享邀请无效。' });
+      if (req.method !== 'POST') return send(res, 405, { error: '仅支持 POST。' });
+      const body = await readJson(req);
+      const result = shared.publish(session, body.revision, decodeURIComponent(delivery[1]), body.note, req);
+      return send(res, result.status || 200, result);
+    }
     if (/^\/api\/shared\/[A-Za-z0-9_-]+$/.test(url.pathname)) {
       if (!session) return send(res, 403, { error: '共享邀请无效或已失效，请联系组织者。' });
       if (req.method === 'GET') return send(res, 200, shared.get(session));
@@ -523,7 +554,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'PUT') return send(res, 405, { error: '仅支持 GET / PUT / POST。' });
       const body = await readJson(req, 20_000_000);
       if (!body.doc?.project || !Array.isArray(body.doc.wbs)) return send(res, 400, { error: '项目数据不完整。' });
-      const result = shared.update(session, body.revision, body.doc);
+      const result = shared.update(session, body.revision, body.doc, req);
       return send(res, result.status || 200, result);
     }
 
@@ -712,6 +743,8 @@ const server = http.createServer(async (req, res) => {
     const requested = decodeURIComponent(url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
     const file = path.resolve(here, requested);
     if (!file.startsWith(`${here}${path.sep}`)) return send(res, 403, 'Forbidden', 'text/plain; charset=utf-8');
+    const privatePersonnel = path.resolve(runtimeDir, 'personnel').toLowerCase();
+    if (file.toLowerCase() === privatePersonnel || file.toLowerCase().startsWith(`${privatePersonnel}${path.sep}`)) return send(res, 403, { error: '人员记录不可通过静态路径读取。' });
     const content = await readFile(file);
     return send(res, 200, content, mime[path.extname(file).toLowerCase()] || 'application/octet-stream');
   } catch (error) {

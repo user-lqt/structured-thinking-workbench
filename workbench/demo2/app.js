@@ -57,11 +57,13 @@ window.WB = window.WB || {};
   /* ── 角色门禁 ─────────────────────────── */
 
   function isReadOnlyControl(el) {
+    if (el.closest('[data-personnel-control]')) return true;
     if (el.closest('.tabs, .seg-switch')) return true;
     if (el.classList.contains('close-wizard')) return true;
     if (el.id && el.id.startsWith('export')) return true;
     /* 显式写入标记优先：属性名里恰好含 phase / view 这类只读动词时用它兜底 */
     if (el.hasAttribute?.('data-write')) return false;
+    if (el.hasAttribute?.('data-task-history') || el.hasAttribute?.('data-task-action-close')) return true;
     if (el.hasAttribute?.('data-library-tab') || el.hasAttribute?.('data-library-search') || el.hasAttribute?.('data-asset-filter') || el.hasAttribute?.('data-asset-download')) return true;
     /* 属性名或属性值命中只读动词都算「只看不改」，例如 data-data="export-bundle" */
     return el.getAttributeNames().some((attr) => {
@@ -121,7 +123,7 @@ window.WB = window.WB || {};
   function openLogin() {
     $('#loginName').value = store.state.user?.name || '';
     $('#loginGate').classList.add('is-open');
-    setTimeout(() => $('#loginName')?.focus(), 80);
+    setTimeout(() => $('#accountLoginForm input[name="username"]')?.focus(), 80);
   }
 
   function closeLogin() {
@@ -135,12 +137,43 @@ window.WB = window.WB || {};
     const name = U.text($('#loginName').value) || '未命名同学';
     const role = $('input[name="role"]:checked')?.value || 'organizer';
     store.setUser({ name, role });
+    localStorage.setItem('demo2-local-mode', 'true');
     closeLogin();
     window.WB.renderIdentity();
     renderAll();
     toast(`已以「${U.roleLabel(role)}」身份进入`);
-    if (!store.state.project) openWizard();
+    switchView('projects');
   }
+
+  async function submitAccountLogin(event) {
+    event.preventDefault();
+    const form = event.target, button = $('#accountLoginSubmit'), notice = $('#accountLoginMessage');
+    button.disabled = true; notice.textContent = '正在验证账号…';
+    try {
+      const value = Object.fromEntries(new FormData(form));
+      const account = await window.WB.personnel.authenticate(value);
+      localStorage.removeItem('demo2-local-mode');
+      form.querySelector('[name="password"]').value = '';
+      store.setUser({ name: account.name, role: account.workspace === 'volunteer' ? 'viewer' : 'organizer' });
+      if (account.workspace === 'volunteer' && !new URLSearchParams(location.search).has('share')) { location.href = './staff.html'; return; }
+      closeLogin(); switchView('projects');
+      toast('已登录，请选择项目；打开后自动登记本人资料');
+    } catch (error) { notice.textContent = error.message; }
+    finally { button.disabled = false; }
+  }
+
+  async function openProject(id = store.state.activeId) {
+    if (!window.WB.personnel.account && localStorage.getItem('demo2-local-mode') !== 'true') { openLogin(); return false; }
+    if (!id) return false;
+    if (id !== store.state.activeId && !store.switchProject(id)) { toast('项目打开失败，本地数据可能已损坏'); return false; }
+    try {
+      await window.WB.personnel.enterWorkbench();
+      switchView('overview');
+      toast(window.WB.personnel.account && window.WB.sync?.role !== 'viewer' ? '项目已打开，本人资料已自动登记' : `已打开「${store.projectName()}」`);
+      return true;
+    } catch (error) { switchView('projects'); toast(`项目登记未完成：${error.message}`); return false; }
+  }
+  window.WB.openProject = openProject;
 
   /* ── 顶部状态栏 ───────────────────────── */
 
@@ -152,7 +185,7 @@ window.WB = window.WB || {};
     const overall = window.WB.wbs.overall(state.wbs);
     const owner = state.projects.length > 1 ? ` · 共 ${state.projects.length} 个项目` : '';
     $('#projectMeta').textContent = state.project
-      ? `${meta || '尚未填写活动信息'} · 任务完成度 ${overall.percent}%${owner}`
+      ? `${meta || '尚未填写活动信息'} · 已验收占比 ${overall.percent}%${owner}`
       : `尚未建立项目信息表${owner}`;
     renderGuideChip();
   }
@@ -189,7 +222,7 @@ window.WB = window.WB || {};
     const user = state.user;
     const chip = $('#userChip');
     if (chip) {
-      chip.textContent = user ? `${user.name} · ${U.roleLabel()}` : '未登录';
+      chip.textContent = window.WB.personnel.account ? `${window.WB.personnel.account.name} · 已登录` : user ? `${user.name} · ${U.roleLabel()}` : '未登录';
       chip.classList.toggle('is-viewer', Boolean(user) && !U.canOperate());
     }
     const select = $('#projectSwitch');
@@ -215,11 +248,12 @@ window.WB = window.WB || {};
         <small>${escapeHtml(U.roleLabel())}</small>
       </div>
       <div class="user-menu-body">
-        <p class="help-muted">切换演示身份（本地保存，不校验密码）</p>
-        ${ROLES.map((role) => `<button class="user-menu-role ${user?.role === role.value ? 'is-active' : ''}" data-user-role="${role.value}">
+        <p class="help-muted">${window.WB.personnel.account ? '已登录个人账号，打开项目自动登记服务资料。' : '切换演示身份（本地保存，不校验密码）'}</p>
+        ${window.WB.personnel.account ? `<button class="button button-ghost" data-user-action="profile">编辑账号个人资料</button>` : ROLES.map((role) => `<button class="user-menu-role ${user?.role === role.value ? 'is-active' : ''}" data-user-role="${role.value}">
           <b>${escapeHtml(role.label)}</b><small>${escapeHtml(role.hint)}</small></button>`).join('')}
       </div>
       <div class="user-menu-foot">
+        <a class="button button-ghost" href="./staff.html" target="_blank" rel="noreferrer">服务账号 · 我的任务</a>
         <button class="button button-ghost" data-user-action="projects">项目库</button>
         <button class="button button-ghost danger" data-user-action="signout">退出登录</button>
       </div>`;
@@ -321,6 +355,9 @@ window.WB = window.WB || {};
 
   function switchView(id) {
     if (!window.WB.views[id]) return;
+    if (!['projects', 'help'].includes(id) && store.state.project && window.WB.personnel.account && window.WB.sync?.role !== 'viewer' && window.WB.personnel.snapshot?.id !== store.state.activeId) {
+      openProject().then((opened) => { if (opened) switchView(id); }); return;
+    }
     store.state.view = id;
     store.save();
     renderAll();
@@ -339,9 +376,13 @@ window.WB = window.WB || {};
   function gotoTarget(target) {
     const view = target?.view;
     if (!view || !window.WB.views[view]) return false;
+    if (!['projects', 'help'].includes(view) && store.state.project && window.WB.personnel.account && window.WB.sync?.role !== 'viewer' && window.WB.personnel.snapshot?.id !== store.state.activeId) {
+      openProject().then((opened) => { if (opened) gotoTarget(target); }); return true;
+    }
     const ui = store.state.ui;
     const phase = target.phase || '';
     const taskView = target.taskView || '';
+    if (view === 'resources' && ['personnel', 'inventory'].includes(target.resourceSection)) ui.resourceSection = target.resourceSection;
     if (taskView) ui.taskView = taskView;
     if (phase) {
       if (view === 'tasks') {
@@ -365,6 +406,7 @@ window.WB = window.WB || {};
       view: el.dataset.gotoView,
       phase: el.dataset.gotoPhase,
       taskView: el.dataset.gotoTaskview,
+      resourceSection: el.dataset.gotoResourceSection,
       openMaterial: el.dataset.gotoOpen,
       row: el.dataset.gotoRow
     });
@@ -511,6 +553,15 @@ window.WB = window.WB || {};
     });
 
     $('#loginForm').addEventListener('submit', submitLogin);
+    $('#accountProfileFields').innerHTML = window.WB.personnel.fields();
+    $('#accountProfileFields input[name="name"]').required = false;
+    $('#accountLoginForm').addEventListener('submit', submitAccountLogin);
+    $('#accountLoginMode').addEventListener('change', (event) => {
+      const registering = event.target.value === 'register';
+      $('#accountRegisterFields').hidden = !registering;
+      $('#accountProfileFields input[name="name"]').required = registering;
+      $('#accountLoginSubmit').textContent = registering ? '注册并选择项目 →' : '登录并选择项目 →';
+    });
     $('#wizardForm').addEventListener('submit', submitWizard);
     /* 向导里的活动日期：增删一天只重画这块控件，值在提交时统一读取 */
     $('#wizardFields').addEventListener('click', (event) => {
@@ -552,13 +603,10 @@ window.WB = window.WB || {};
     $('#aiFillManifest').addEventListener('click', autoFillManifest);
     $('#generateMaterials').addEventListener('click', () => window.WB.views.material.generateAll());
 
-    $('#projectSwitch').addEventListener('change', (event) => {
+    $('#projectSwitch').addEventListener('change', async (event) => {
       const id = event.target.value;
       if (!id || id === store.state.activeId) return;
-      if (store.switchProject(id)) {
-        renderAll();
-        toast(`已切换到「${store.projectName()}」`);
-      }
+      await openProject(id);
     });
 
     $('#userChip').addEventListener('click', (event) => {
@@ -566,7 +614,7 @@ window.WB = window.WB || {};
       toggleUserMenu();
     });
 
-    document.addEventListener('click', (event) => {
+    document.addEventListener('click', async (event) => {
       const menu = $('#userMenu');
       if (!menu || menu.classList.contains('hidden')) return;
       const role = event.target.closest('[data-user-role]');
@@ -579,14 +627,22 @@ window.WB = window.WB || {};
       }
       const action = event.target.closest('[data-user-action]')?.dataset.userAction;
       if (action === 'projects') { toggleUserMenu(false); switchView('projects'); return; }
+      if (action === 'profile') { toggleUserMenu(false); location.href = './staff.html'; return; }
       if (action === 'signout') {
         toggleUserMenu(false);
+        try { await window.WB.personnel.logout(); } catch (error) { toast(error.message); return; }
+        localStorage.removeItem('demo2-local-mode');
         store.signOut();
         renderAll();
         openLogin();
         return;
       }
       if (!event.target.closest('#userMenu, #userChip')) toggleUserMenu(false);
+    });
+    window.addEventListener('personnel-session', (event) => {
+      const account = event.detail.account;
+      if (!account && localStorage.getItem('demo2-local-mode') !== 'true') { store.signOut(); switchView('projects'); openLogin(); }
+      else renderIdentity();
     });
 
     /* 跨视图跳转：任何带 data-goto-view 的元素点一下都走同一条通道 */
@@ -632,8 +688,18 @@ window.WB = window.WB || {};
     observeContent();
     renderAll();
     await window.WB.sync?.init();
-    if (!store.state.user) openLogin();
-    else if (!store.state.project) openWizard();
+    try {
+      const account = await window.WB.personnel.restore();
+      if (account) {
+        store.setUser({ name: account.name, role: account.workspace === 'volunteer' ? 'viewer' : 'organizer' });
+        localStorage.removeItem('demo2-local-mode');
+        if (account.workspace === 'volunteer' && !new URLSearchParams(location.search).has('share')) { location.href = './staff.html'; return; }
+        if (new URLSearchParams(location.search).has('share')) await openProject();
+        else switchView('projects');
+        closeLogin();
+      } else if (store.state.user && localStorage.getItem('demo2-local-mode') === 'true') closeLogin();
+      else { switchView('projects'); openLogin(); }
+    } catch (error) { $('#accountLoginMessage').textContent = error.message; openLogin(); }
     window.WB.ai.healthPromise = window.WB.ai.check();
     await window.WB.ai.loadSkills();
     renderAll();

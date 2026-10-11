@@ -45,32 +45,46 @@ window.WB = window.WB || {};
       const items = rows.filter((r) => r.phase === phase.value);
       if (!items.length) continue;
       lines.push(`## ${phase.label}（${phase.window}）`, '');
-      lines.push(row(['任务', '负责角色', '相对时间', '工期(天)', '产出物', '前置任务', '状态', '完成度', '里程碑', '来源']));
-      lines.push(row(['---', '---', '---', '---', '---', '---', '---', '---', '---', '---']));
+      lines.push(row(['任务', '负责角色', '相对时间', '工期(天)', '产出物', '前置任务', '生命周期', '受阻原因', '待核实', '里程碑', '来源']));
+      lines.push(row(Array(11).fill('---')));
       for (const item of items) {
+        const s = window.WB.taskLifecycle.replay(item);
         lines.push(row([
           item.task, item.owner, item.due, item.duration, item.output, item.depends,
-          STATUS_LABEL[item.status] || item.status, item.progress ? `${item.progress}%` : '',
+          STATUS_LABEL[s.status], s.blocked ? s.blockReason || '旧记录缺少原因' : '', s.needsVerification ? '是' : '',
           item.milestone ? '是' : '', U.SOURCE_LABEL[item.source] || item.source
         ]));
       }
       lines.push('');
+      for (const item of items) {
+        lines.push(`### ${item.task || '未命名任务'}｜执行与验收记录`, '');
+        lines.push(`- 实名责任人编号：${item.responsiblePersonId || '待补充'}（岗位：${item.owner || '待补充'}）`);
+        if (item.legacyReporting) lines.push(`- 历史填报（不计当前验收）：${JSON.stringify(item.legacyReporting)}`);
+        if (item.importedLifecycle) lines.push(`- 导入前历史操作（须在共享项目重新验收）：${JSON.stringify(item.importedLifecycle)}`);
+        lines.push(taskRecords(item) || '- 暂无操作记录', '');
+      }
     }
     return lines.join('\n');
   }
 
   function wbsToCsv() {
-    const header = ['阶段', '任务', '负责角色', '相对时间', '绝对日期', '工期(天)', '产出物', '前置任务', '状态', '完成度', '里程碑'];
+    const header = ['阶段', '任务', '负责角色', '相对时间', '绝对日期', '工期(天)', '产出物', '前置任务', '生命周期', '受阻', '受阻原因', '待核实', '里程碑', '历史填报状态', '历史填报百分比', '执行与验收记录', '导入前历史操作', '实名责任人编号', '提交交付版本', '验收绑定版本'];
     const list = [header];
     for (const item of window.WB.store.state.wbs) {
       const date = dateFromDue(eventDate(), item.due);
+      const s = window.WB.taskLifecycle.replay(item);
       list.push([
         PHASE_LABEL[item.phase] || item.phase, item.task, item.owner, item.due, date ? fmtDate(date) : '',
-        item.duration, item.output, item.depends, STATUS_LABEL[item.status] || item.status,
-        item.progress, item.milestone ? '是' : ''
+        item.duration, item.output, item.depends, STATUS_LABEL[s.status], s.blocked ? '是' : '', s.blockReason, s.needsVerification ? '是' : '', item.milestone ? '是' : '',
+        item.legacyReporting?.status, item.legacyReporting?.progress, taskRecords(item).replace(/\n/g, '；'), item.importedLifecycle ? JSON.stringify(item.importedLifecycle) : '', item.responsiblePersonId || '待补充', JSON.stringify(s.submission?.deliveries || []), JSON.stringify(s.acceptance?.deliveries || [])
       ]);
     }
     return list.map((line) => line.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  }
+
+  function taskRecords(item) {
+    const Task = window.WB.taskLifecycle, invalid = new Map(Task.replay(item).invalid.map((entry) => [entry.index, entry.reason]));
+    return (item.lifecycle?.events || []).map((event, i) => `- ${Task.actionLabels[event?.kind] || event?.kind || '未知操作'}｜${event?.at || ''}｜${event?.actor?.name || '身份缺失'}（${event?.origin || ''}）｜${event?.evidence || event?.note || ''}｜责任人编号 ${event?.responsiblePersonId || ''}｜交付版本 ${JSON.stringify(event?.deliveries || [])}${invalid.has(i) ? `｜无效：${invalid.get(i)}` : ''}`).join('\n');
   }
 
   function gatesToMarkdown() {
@@ -329,22 +343,31 @@ window.WB = window.WB || {};
     const state = window.WB.store.state;
     const lines = [`# ${projectName()}｜人员与资源台账`, ''];
     if (!state.resources.length) return `${lines.join('\n')}\n尚未登记资源。\n`;
-    lines.push(row(['资源', '类型', '阶段', '单位', '可用', '已安排', '占用率', '检查', '责任人', '备注']));
-    lines.push(row(['---', '---', '---', '---', '---', '---', '---', '---', '---', '---']));
-    for (const item of state.resources) {
-      const gap = Number(item.assigned) - Number(item.available);
+    const staff = state.resources.filter((item) => item.kind === 'staff');
+    if (staff.length) {
+      lines.push('## 历史人员需求汇总', '', '实名服务人员、班次与考勤由账号名册单独导出。', '', row(['人员类别', '阶段', '单位', '计划可用', '计划需求', '负责人', '备注']), row(Array(7).fill('---')));
+      for (const item of staff) lines.push(row([item.name, PHASE_LABEL[item.phase], item.unit, item.available, item.assigned, item.owner, item.note]));
+      lines.push('');
+    }
+    const inventory = state.resources.filter((item) => item.kind !== 'staff');
+    lines.push('## 物资与资源', '');
+    lines.push(row(['资源', '类型', '阶段', '单位', '库存可用', '计划需求', '已借出', '单价（元）', '存放地点', '采购来源', '状态', '计划占用率', '检查', '责任人', '备注', '发票 / 凭证']));
+    lines.push(row(Array(16).fill('---')));
+    for (const item of inventory) {
+      const net = Math.max(0, Number(item.available) - Number(item.loaned || 0));
+      const gap = Number(item.assigned) - net;
       const verdict = gap > 0 ? `超出 ${gap}` : gap === 0 && Number(item.assigned) > 0 ? '已排满' : '正常';
-      const pct = Number(item.available) > 0
-        ? Math.round((Number(item.assigned) / Number(item.available)) * 100)
+      const pct = net > 0
+        ? Math.round((Number(item.assigned) / net) * 100)
         : (Number(item.assigned) > 0 ? 100 : 0);
       lines.push(row([item.name, U.RESOURCE_KIND[item.kind] || item.kind, PHASE_LABEL[item.phase] || '', item.unit,
-        item.available, item.assigned, `${pct}%`, verdict, item.owner, item.note]));
+        item.available, item.assigned, item.loaned || 0, item.unitCost || 0, item.location, item.supplier, item.condition, `${pct}%`, verdict, item.owner, item.note, (item.invoices || []).map((f) => `${f.name}${f.stored ? '' : '（原件另存）'}`).join('；')]));
     }
     lines.push('', '## 占用冲突自检', '');
-    const over = state.resources.filter((item) => Number(item.assigned) > Number(item.available));
+    const over = inventory.filter((item) => Number(item.assigned) > Math.max(0, Number(item.available) - Number(item.loaned || 0)));
     if (!over.length) lines.push('- 通过：没有资源被超额安排');
     else for (const item of over) {
-      lines.push(`- ${item.name}：可用 ${item.available} ${item.unit} / 已安排 ${item.assigned} ${item.unit}，缺口 ${Number(item.assigned) - Number(item.available)} ${item.unit}`);
+      lines.push(`- ${item.name}：净可用 ${Math.max(0, Number(item.available) - Number(item.loaned || 0))} ${item.unit} / 计划需求 ${item.assigned} ${item.unit}，缺口 ${Number(item.assigned) - Math.max(0, Number(item.available) - Number(item.loaned || 0))} ${item.unit}`);
     }
     lines.push('');
     return lines.join('\n');

@@ -700,7 +700,31 @@ window.WB.views = window.WB.views || {};
 
   /* ── 材料卡片 ─────────────────────────── */
 
+  function deliveryControls(key, doc) {
+    if (!doc) return '';
+    return `<div class="delivery-controls"><p>${escapeHtml(doc.materialId || `MAT-${key}`)} · ${doc.aiDraft ? 'AI 草稿（人工编辑后仍须核对）' : '编辑草稿'} · 草稿不作为已交付版本</p>
+      <button class="button button-ghost" data-material-publish="${escapeHtml(key)}" data-write ${!U.canOperate() ? 'disabled' : ''}>确认并保存交付版本</button>
+      <span>已确认 ${(doc.deliveries || []).filter((v) => v.origin === 'server').length} 个版本</span>
+      ${(doc.deliveries || []).map((v) => `<button class="button button-quiet" data-delivery-download="${escapeHtml(key)}" data-version-id="${escapeHtml(v.id)}">下载 V${v.number} 快照${v.origin === 'imported' ? '（导入待确认）' : ''}</button>`).join('')}</div>`;
+  }
+  async function publishDelivery(key, note = '') {
+    if (!U.canOperate()) throw new Error('只读访客不能确认交付版本');
+    if (!window.WB.personnel?.account) throw new Error('请先登录本项目实名服务人员账号，再确认交付版本');
+    if (!window.WB.sync?.role) await window.WB.personnel.enterWorkbench();
+    await window.WB.sync.publishDelivery(key, note);
+    render(); window.WB.toast('交付快照已保存；后续编辑草稿不会改变该版本');
+  }
+  function downloadDelivery(key, id) {
+    const material = state().materials[key], version = material?.deliveries?.find((v) => v.id === id);
+    if (!version) throw new Error('交付版本不存在');
+    U.downloadText(`${U.safeFileName(version.snapshot.material.title)}-${material.materialId}-V${version.number}.json`, JSON.stringify({ materialId: material.materialId, ...version }, null, 2), 'application/json');
+  }
+
   function materialCard(item) {
+    if (item.key === 'materialList') {
+      const doc = window.WB.inventory.documentOf(state());
+      return `<article class="card"><div class="card-title"><h3>物料与设备清单 · 来自资源台账</h3></div><div class="help-body"><p>名称、数量、库存、借出、单价、地点与责任人统一在「人员与资源 → 物资与资源」维护；采购发票在资源行上传，此处按最新台账查看与导出。预算与决算表的逐行发票入口仍保留。</p><button class="button button-primary" data-goto-view="resources" data-goto-resource-section="inventory">去管理物资与上传发票</button><button class="button button-ghost" data-material-export="materialList" data-format="xlsx">Excel</button><button class="button button-ghost" data-material-export="materialList" data-format="docx">Word</button><button class="button button-ghost" data-material-export="materialList" data-format="md">Markdown</button>${deliveryControls(item.key, state().materials[item.key])}${html().toHtml(doc.sections[0].body)}</div></article>`;
+    }
     const doc = state().materials[item.key];
     const open = state().ui.openMaterial === item.key;
     const def = materialDef(item.skill);
@@ -720,7 +744,7 @@ window.WB.views = window.WB.views || {};
     const stateText = isStructure
       ? `由「方案比选」维护 · ${options.selected.length} 个方案 × ${options.criteria.length} 个维度`
       : doc
-        ? `已生成 · ${doc.sections.length} 章 · ${doc.sections.reduce((sum, section) => sum + U.text(section.body).length, 0)} 字`
+        ? `${doc.aiDraft || String(doc.source).startsWith('ai') ? 'AI 草稿' : '编辑草稿'} · ${doc.sections.length} 章 · ${doc.sections.reduce((sum, section) => sum + U.text(section.body).length, 0)} 字`
         : ready ? `未生成 · 将输出 ${sections.length} 章` : '未定义章节';
     const isPoster = item.kind === 'graphic';
     const aiOffline = U.offline();
@@ -748,6 +772,7 @@ window.WB.views = window.WB.views || {};
                ${doc ? downloadButtons(item) : ''}`}
         </div>
       </header>
+      ${deliveryControls(item.key, doc)}
       ${sectionsOpen.has(item.key) ? sectionPanel(item.key) : ''}
       ${fillOpen.has(item.key) ? fillPanel(item.key) : ''}
       ${open && doc && !isPoster ? materialEditor(item.key, doc) : ''}
@@ -1296,6 +1321,7 @@ window.WB.views = window.WB.views || {};
 
   function render() {
     const current = state();
+    window.WB.inventory?.sync(current);
     renderTemplateBar();
     renderPhaseSeg();
     const selected = OUTPUT_ITEMS.filter((item) => current.project?.outputs?.[item.key]);
@@ -1394,7 +1420,7 @@ window.WB.views = window.WB.views || {};
         挂靠任务: risk.task, 触发信号: risk.trigger, 预防措施: risk.prevention, 现场响应: risk.response, 升级路径: risk.escalation, 责任人: risk.owner
       })),
       资源台账: (current.resources || []).map((item) => ({
-        资源: item.name, 类型: kindLabel(item.kind), 单位: item.unit, 可用: item.available, 已安排: item.assigned, 责任人: item.owner, 说明: item.note
+        资源: item.name, 类型: kindLabel(item.kind), 单位: item.unit, 库存可用: item.available, 计划需求: item.assigned, 已借出: item.loaned || 0, 单价: item.unitCost || 0, 存放地点: item.location, 采购来源: item.supplier, 状态: item.condition, 责任人: item.owner, 说明: item.note
       })),
       素材库: window.WB.library.context(current.assets, 'assets'),
       知识库: window.WB.library.context(current.assets, 'knowledge'),
@@ -1405,6 +1431,7 @@ window.WB.views = window.WB.views || {};
   }
 
   async function generateOne(outputKey, { silent = false } = {}) {
+    if (outputKey === 'materialList') { window.WB.inventory.sync(state()); store().save(); return true; }
     const current = state();
     const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
     if (!item || !current.project) return false;
@@ -1420,6 +1447,7 @@ window.WB.views = window.WB.views || {};
     });
     const previous = current.materials[outputKey];
     current.materials[outputKey] = {
+      materialId: previous?.materialId || `MAT-${outputKey}`, deliveries: previous?.deliveries || [], aiDraft: true,
       title: U.text(data.title) || `${current.project.basic.name || '未命名活动'}｜${item.label}`,
       sections,
       templateId: template?.id || '',
@@ -1476,7 +1504,7 @@ window.WB.views = window.WB.views || {};
       previous: { title: doc.title, sections: doc.sections, templateName: doc.templateName, source: doc.source, generatedAt: doc.generatedAt },
       reframedFrom: reference.name,
       reframedAt: new Date().toISOString(),
-      source: 'ai-reframe'
+      source: 'ai-reframe', aiDraft: true
     };
     store().log('material', `按参考《${reference.name}》重排《${item.label}》`);
     store().save();
@@ -1562,7 +1590,7 @@ window.WB.views = window.WB.views || {};
 
   /* 按格式导出单份材料：docx / xlsx 走二进制下载，其余按 Markdown 文本下载 */
   function downloadMaterial(key, format) {
-    const doc = state().materials[key];
+    const doc = key === 'materialList' ? window.WB.inventory.documentOf(state()) : state().materials[key];
     if (!doc) return;
     const item = OUTPUT_ITEMS.find((entry) => entry.key === key);
     const name = `${U.safeFileName(store().projectName())}-${U.safeFileName(item?.label || key)}`;
@@ -1587,8 +1615,17 @@ window.WB.views = window.WB.views || {};
     if (panel.dataset.materialMounted) return;
     panel.dataset.materialMounted = '1';
 
-    panel.addEventListener('click', (event) => {
+    panel.addEventListener('click', async (event) => {
       const current = state();
+      const publish = event.target.closest('[data-material-publish]'), version = event.target.closest('[data-delivery-download]');
+      if (publish) {
+        const note = window.prompt('请核对正文、参考填值及附件。保存本次实际交付快照（可填写版本说明）', '');
+        if (note === null) return;
+        publish.disabled = true;
+        try { await publishDelivery(publish.dataset.materialPublish, note); } catch (error) { window.WB.toast(error.message); } finally { publish.disabled = !U.canOperate(); }
+        return;
+      }
+      if (version) { try { downloadDelivery(version.dataset.deliveryDownload, version.dataset.versionId); } catch (error) { window.WB.toast(error.message); } return; }
       const generate = event.target.closest('[data-material-generate]');
       if (generate) { generateOne(generate.dataset.materialGenerate); return; }
       const goto = event.target.closest('[data-material-goto]');
@@ -2013,5 +2050,5 @@ window.WB.views = window.WB.views || {};
     });
   }
 
-  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, chosenForms, sectionListOf, setSections, syncSectionsToDoc, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterPrompt: () => posterPromptText(), posterPromptUsed: () => posterPromptUsed(), posterPromptEdited: () => posterPromptEdited() };
+  window.WB.views.material = { id: 'material', label: '过程材料', render, mount, publishDelivery, downloadDelivery, chosenForms, sectionListOf, setSections, syncSectionsToDoc, generateOne, generateAll, reframeMaterial, undoReframe, uploadTemplate, uploadReference, removeReference, attachInvoices, readInvoices, commitTable, commitBlock, addRow, removeRow, previewBlock, openFill, closeFill, fillPanel, fillModel, fillFromReference, aiFillSlots, aiFillOne, fillContext, normaliseFillRows, toggleFillStep, fillBasisOf, fillStepBody, fillStepMove, fillStepSeek, fillStepReset, fillStepSlots, fillStepIndex, fillStepOn, resetFill, setFillValue, setFillBlank, fillValues, posterPrompt: () => posterPromptText(), posterPromptUsed: () => posterPromptUsed(), posterPromptEdited: () => posterPromptEdited() };
 }());
