@@ -23,10 +23,10 @@ const raw = powershell(`$listeners = @(Get-NetTCPConnection -State Listen -Local
 const processes = raw ? JSON.parse(raw) : [];
 if (processes.some((info) => !isDemo(info))) throw new Error(`Port ${port} belongs to another application; no process was stopped.`);
 if (processes.length && processes.every((info) => info.Started >= latestWrite) && await ready()) {
-  console.log(`Demo2 is already running with current account routes: ${base}`); openBrowser();
+  console.log(`Campus Activity Workbench v1.0 is already running: ${base}`); openBrowser();
 } else {
   for (const info of processes) {
-    console.log('Restarting outdated Demo2; existing project and attendance files are preserved.');
+    console.log('Restarting outdated Campus Activity Workbench; project and attendance files are preserved.');
     powershell(`$info = Get-CimInstance Win32_Process -Filter 'ProcessId = ${info.ProcessId}'; if (-not ($info.Name -eq 'node.exe' -and $info.CommandLine -match 'demo2[\\/]server\.mjs')) { throw 'Process changed; no process stopped.' }; $parentInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($info.ParentProcessId)"; if ($parentInfo.Name -eq 'node.exe' -and $parentInfo.CommandLine -match 'demo2[\\/]server\.mjs' -and $parentInfo.CommandLine -match '--watch') { Stop-Process -Id $parentInfo.ProcessId -ErrorAction SilentlyContinue }; Stop-Process -Id ${info.ProcessId} -ErrorAction SilentlyContinue`);
   }
   const child = spawn(process.execPath, ['--watch', '--watch-preserve-output', 'workbench/demo2/server.mjs'], { cwd: repoRoot, env: process.env, stdio: 'inherit', windowsHide: true });
@@ -34,7 +34,7 @@ if (processes.length && processes.every((info) => info.Started >= latestWrite) &
   child.on('exit', (code) => { process.exitCode = code || 0; });
   for (let attempt = 0; attempt < 60; attempt++) {
     if (await ready()) { console.log(`Account service is ready: ${base}`); openBrowser(); break; }
-    if (child.exitCode !== null) throw new Error('Demo2 failed to start.');
+    if (child.exitCode !== null) throw new Error('Campus Activity Workbench failed to start.');
     await wait(100);
   }
 }

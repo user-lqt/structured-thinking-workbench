@@ -1,0 +1,113 @@
+{
+  "version": "d39138e",
+  "date": "2026-10-11",
+  "source": "内置校园科技文化节项目；临时负责人及两名演示执行员；标准起步卡片；未运行模型",
+  "viewport": {
+    "width": 1200,
+    "height": 1050
+  },
+  "deviceScaleFactor": 2,
+  "records": [
+    {
+      "name": "project-entry-d39138e",
+      "selector": "#projectsPanel",
+      "clip": {
+        "x": 34,
+        "y": 246.359375,
+        "width": 1132,
+        "height": 479.703125
+      }
+    },
+    {
+      "name": "overview-content-d39138e",
+      "selector": "#overviewPanel",
+      "clip": {
+        "x": 34,
+        "y": 0.359375,
+        "width": 1132,
+        "height": 810
+      }
+    },
+    {
+      "name": "project-facts-d39138e",
+      "selector": "#basicSection",
+      "clip": {
+        "x": 34,
+        "y": 0,
+        "width": 1132,
+        "height": 700
+      }
+    },
+    {
+      "name": "personnel-d39138e",
+      "selector": "#personnelPanel .card:has(.staff-table)",
+      "clip": {
+        "x": 34,
+        "y": 520.5625,
+        "width": 1132,
+        "height": 530.40625
+      }
+    },
+    {
+      "name": "assignment-d39138e",
+      "selector": "#taskAssignmentPanel [data-personnel-form=\"shift\"]",
+      "clip": {
+        "x": 35,
+        "y": 167.0625,
+        "width": 1130,
+        "height": 882.609375
+      }
+    },
+    {
+      "name": "inventory-d39138e",
+      "selector": "#inventorySection",
+      "clip": {
+        "x": 34,
+        "y": 155.140625,
+        "width": 1132,
+        "height": 700
+      }
+    },
+    {
+      "name": "risk-card-d39138e",
+      "selector": "#riskGroups .risk-card",
+      "clip": {
+        "x": 34,
+        "y": 400.875,
+        "width": 1132,
+        "height": 249.171875
+      }
+    },
+    {
+      "name": "library-d39138e",
+      "selector": "#assetList .library-card",
+      "clip": {
+        "x": 34,
+        "y": 127.125,
+        "width": 272.5,
+        "height": 889.5
+      }
+    },
+    {
+      "name": "workflow-d39138e",
+      "selector": "#flowCanvas",
+      "clip": {
+        "x": 34,
+        "y": 409.328125,
+        "width": 1132,
+        "height": 642
+      }
+    },
+    {
+      "name": "material-edit-d39138e",
+      "selector": "#materialList .material-card.is-open",
+      "clip": {
+        "x": 34,
+        "y": 0,
+        "width": 1132,
+        "height": 660
+      }
+    }
+  ],
+  "errors": []
+}
