@@ -1,0 +1,55 @@
+{
+  "capturedAt": "2026-10-12T10:32:21.323Z",
+  "project": "校园 AI 体验活动",
+  "task": "完成活动签到与现场引导",
+  "state": "accepted",
+  "events": [
+    {
+      "kind": "start",
+      "at": "2026-10-12T09:57:19.107Z",
+      "actor": "项目组织者（共享身份）",
+      "evidence": "",
+      "note": "",
+      "deliveries": []
+    },
+    {
+      "kind": "submit",
+      "at": "2026-10-12T10:19:01.398Z",
+      "actor": "111",
+      "evidence": "本次为模拟测试。111、222 已分别签退并提交班次报告，现提交《签到与引导执行记录》V1，请核验人员记录与本次交付内容。",
+      "note": "",
+      "deliveries": [
+        {
+          "materialId": "MAT-liveLog",
+          "versionId": "6957c522-a50c-4e53-9131-2701979f7887"
+        }
+      ]
+    },
+    {
+      "kind": "approve",
+      "at": "2026-10-12T10:29:58.238Z",
+      "actor": "111",
+      "evidence": "",
+      "note": "已核对两人的签到签退、执行报告及《签到与引导执行记录》V1，符合本次模拟任务要求，同意验收。",
+      "deliveries": [
+        {
+          "materialId": "MAT-liveLog",
+          "versionId": "6957c522-a50c-4e53-9131-2701979f7887"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "05-任务验收通过.png",
+      "width": 1641,
+      "height": 414
+    },
+    {
+      "file": "06-验收人结论与V1绑定.png",
+      "width": 1641,
+      "height": 378
+    }
+  ],
+  "note": "本次模拟任务已验收；不代表参与者、风险预案或整场活动均完成验证"
+}

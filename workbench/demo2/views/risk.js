@@ -77,7 +77,8 @@ window.WB.views = window.WB.views || {};
         <label><span>可能性</span><select data-risk-field="probability">${scaleOptions(item.probability)}</select></label>
         <label><span>影响</span><select data-risk-field="impact">${scaleOptions(item.impact)}</select></label>
       </div>
-      <div class="risk-fields">${fields}</div>
+      <div class="risk-fields">${fields}</div><p>风险编号：${escapeHtml(item.id || "待保存")} · 关联演练 ${state().drills.filter(d=>d.riskId===item.id).length} 场 · 预案修订 ${(item.planHistory||[]).length} 次</p><button class="button button-primary" data-risk-drill="${escapeHtml(item.id)}" ${U.canOperate() ? '' : 'disabled'}>对此风险发起演练</button>
+      ${(item.planHistory||[]).length ? `<details><summary>查看预案修订记录</summary>${item.planHistory.map(h=>`<p>${escapeHtml(h.at)} · ${escapeHtml(h.actor)} · 演练 ${escapeHtml(h.drillId)}</p><pre style="white-space:pre-wrap">${escapeHtml(Object.keys(h.after||{}).filter(k=>h.after[k]!==h.before?.[k]).map(k=>`${k}：${h.before?.[k]||'未填写'} → ${h.after[k]}`).join('\n'))}</pre>`).join('')}</details>` : ''}
     </article>`;
   }
 
@@ -93,7 +94,7 @@ window.WB.views = window.WB.views || {};
       return `<span class="cv-chip ${ok ? 'is-ok' : 'is-warn'}">${escapeHtml(phase.label)} ${count}</span>`;
     }).join('');
     box.innerHTML = `<div class="card check-card ${result.ok ? 'is-ok' : 'is-warn'}">
-      <div class="card-title"><h3>覆盖度自检</h3><small>${escapeHtml(RISK.coverage.hint)}</small></div>
+      <div class="card-title"><h3>覆盖度自检（完整性提示，不代表安全保证）</h3><small>${escapeHtml(RISK.coverage.hint)}</small></div>
       <div class="cv-chips">${phaseChips}
         <span class="cv-chip ${stats.complete === stats.total ? 'is-ok' : 'is-warn'}">四要素写全 ${stats.complete}/${stats.total}</span>
         <span class="cv-chip ${stats.linked === stats.total ? 'is-ok' : 'is-warn'}">挂靠任务 ${stats.linked}/${stats.total}</span>
@@ -164,6 +165,7 @@ window.WB.views = window.WB.views || {};
   function normaliseRisk(raw) {
     const guarded = (value) => (U.text(value) && U.text(value) !== '待确认' ? U.text(value) : '待确认');
     return {
+      id: U.uid("risk"), planHistory: [],
       name: U.text(raw.name).slice(0, 40),
       category: RISK_CATEGORY[raw.category] ? raw.category : 'safety',
       phase: PHASE_ORDER[raw.phase] != null ? raw.phase : 'prepare',
@@ -180,17 +182,20 @@ window.WB.views = window.WB.views || {};
   }
 
   async function calibrate({ silent = false } = {}) {
-    const current = state();
+    if (!U.canOperate()) return false;
+    const current = state(), project = current.project, snapshot = JSON.stringify(current.risks);
     const targets = current.risks.map((item, index) => ({ item, index })).filter(({ item }) => item.source !== 'user');
     if (targets.length < 4) return false;
     const data = await window.WB.ai.run('risk-calibrate', {
-      目标分布: '高风险 2–4 项，中风险 6–11 项，低风险 3–5 项；scores 按分值从高到低排列',
+      评估要求: '按真实触发条件、预防措施和项目环境评估概率与影响；不得为凑分布调整分数',
       风险清单: targets.map(({ item, index }) => ({
         index: index + 1, 名称: item.name, 类别: RISK_CATEGORY[item.category] || '',
-        阶段: PHASE_LABEL[item.phase] || '', 挂靠任务: item.task
+        阶段: PHASE_LABEL[item.phase] || '', 挂靠任务: item.task, 触发:item.trigger, 预防:item.prevention, 响应:item.response
       }))
     }, window.WB.ai.riskCalibrateContract());
     if (!data || !Array.isArray(data.scores)) return false;
+    if (!U.canOperate() || current.project !== project || JSON.stringify(current.risks) !== snapshot) return false;
+    if (!confirm("是否采用 AI 评分建议？建议不代表风险已消除，请根据实际证据核对。\n" + data.scores.map(e=>`${current.risks[Number(e.index)-1]?.name || "未知"}：${e.probability} × ${e.impact}`).join("\n"))) return false;
     let applied = 0;
     for (const entry of data.scores) {
       const item = current.risks[Number(entry.index) - 1];
@@ -209,7 +214,8 @@ window.WB.views = window.WB.views || {};
 
   async function generate() {
     const current = state();
-    if (!current.project) return;
+    if (!current.project || !U.canOperate()) return;
+    const project = current.project;
     if (!current.wbs.length) { window.WB.toast('请先生成任务分解表'); return; }
     const data = await window.WB.ai.run('risk-register', {
       活动基本信息: current.project.basic,
@@ -217,19 +223,17 @@ window.WB.views = window.WB.views || {};
       已勾选产出: U.OUTPUT_ITEMS.filter((item) => current.project.outputs[item.key]).map((item) => item.label)
     }, window.WB.ai.riskContract());
     if (!data || !Array.isArray(data.risks)) return;
-    const kept = current.risks.filter((item) => item.source === 'user');
-    const generated = data.risks.map(normaliseRisk).filter((item) => item.name);
+    if (!U.canOperate() || current.project !== project) return;
+    const kept = current.risks;
+    const names = new Set(kept.map(r => `${r.category}|${r.name}`));
+    const generated = data.risks.map(normaliseRisk).filter(item => { const key=`${item.category}|${item.name}`; if(!item.name || names.has(key)) return false; names.add(key); return true; });
     current.risks = [...generated, ...kept];
     current.riskCompliance = Array.isArray(data.compliance) ? data.compliance.slice(0, 3).map(String) : [];
     current.ui.riskFilter = null;
     store().log('risk', `生成风险清单 ${generated.length} 项`);
     store().save();
     render();
-    const check = risk().coverage(current.risks, current.wbs);
-    const needCalibrate = check.stats.distribution.high < RISK.coverage.highRange[0] || check.stats.distribution.high > RISK.coverage.highRange[1]
-      || check.stats.distribution.low < RISK.coverage.lowMin;
-    const calibrated = needCalibrate ? await calibrate({ silent: true }) : false;
-    window.WB.toast(`生成 ${generated.length} 项风险${kept.length ? `，保留 ${kept.length} 项手动风险` : ''}${calibrated ? '，已自动校准评分' : ''}`);
+    window.WB.toast(`新增 ${generated.length} 项风险建议，保留原有 ${kept.length} 项；请人工核对评分`);
   }
 
   /* 应急联络卡：把高风险项压成一页可打印的处置卡 */
@@ -272,8 +276,11 @@ window.WB.views = window.WB.views || {};
         render();
         return;
       }
+      const drill = event.target.closest('[data-risk-drill]');
+      if (drill) { window.WB.views.drills.startFromRisk(drill.dataset.riskDrill); return; }
       const remove = event.target.closest('[data-risk-remove]');
       if (remove) {
+        if (!U.canOperate() || !confirm("删除此风险？历史演练仍保留原编号与预案快照。")) return;
         state().risks.splice(Number(remove.dataset.riskRemove), 1);
         store().save();
         render();
@@ -282,7 +289,7 @@ window.WB.views = window.WB.views || {};
 
     panel.addEventListener('input', (event) => {
       const el = event.target.closest('[data-risk-field]');
-      if (!el) return;
+      if (!el || !U.canOperate()) return;
       const card = el.closest('[data-risk]');
       const item = state().risks[Number(card?.dataset.risk)];
       if (!item) return;
@@ -293,14 +300,15 @@ window.WB.views = window.WB.views || {};
       if (key === 'probability' || key === 'impact') { render(); return; }
       const badge = card.querySelector('.badge');
       if (badge) badge.outerHTML = sourceBadge('user');
-      if (key === 'name' || key === 'category' || key === 'phase') render();
+      if (key === 'category' || key === 'phase') render();
     });
 
     $('#generateRisks').addEventListener('click', generate);
     $('#calibrateRisks').addEventListener('click', () => calibrate());
     $('#addRisk').addEventListener('click', () => {
+      if (!U.canOperate()) return;
       state().risks.push({
-        name: '新风险', category: 'safety', phase: 'execute', task: '',
+        id: U.uid('risk'), planHistory: [], name: '新风险', category: 'safety', phase: 'execute', task: '',
         probability: 3, impact: 3, trigger: '', prevention: '', response: '', escalation: '', owner: '', source: 'user'
       });
       store().save();

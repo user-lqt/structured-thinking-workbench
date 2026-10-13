@@ -64,14 +64,6 @@ window.WB = window.WB || {};
       if (!stats.categories[required]) issues.push(`缺少「${label}」类风险，这类风险必须显式列出。`);
     }
 
-    const high = stats.distribution.high;
-    if (high < rules.highRange[0] || high > rules.highRange[1]) {
-      issues.push(`高风险 ${high} 项，应落在 ${rules.highRange[0]}–${rules.highRange[1]} 项之间。`);
-    }
-    if (stats.distribution.low < rules.lowMin) {
-      issues.push(`低风险仅 ${stats.distribution.low} 项，至少要有 ${rules.lowMin} 项，否则说明评分整体虚高。`);
-    }
-
     const taskNames = new Set(tasks.map((row) => row.task).filter(Boolean));
     stats.linked = risks.filter((risk) => risk.task && risk.task !== '待确认' && (!taskNames.size || taskNames.has(risk.task))).length;
     if (taskNames.size && stats.linked < risks.length) {

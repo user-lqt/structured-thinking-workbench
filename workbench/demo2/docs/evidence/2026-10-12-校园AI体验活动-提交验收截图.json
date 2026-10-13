@@ -1,0 +1,63 @@
+{
+  "capturedAt": "2026-10-12T10:26:31.507Z",
+  "project": "校园 AI 体验活动",
+  "state": "review",
+  "label": "待验收",
+  "materialId": "MAT-liveLog",
+  "task": "完成活动签到与现场引导",
+  "events": [
+    {
+      "kind": "start",
+      "at": "2026-10-12T09:57:19.107Z",
+      "actor": "项目组织者（共享身份）",
+      "evidence": "",
+      "note": "",
+      "deliveries": []
+    },
+    {
+      "kind": "submit",
+      "at": "2026-10-12T10:19:01.398Z",
+      "actor": "111",
+      "evidence": "本次为模拟测试。111、222 已分别签退并提交班次报告，现提交《签到与引导执行记录》V1，请核验人员记录与本次交付内容。",
+      "note": "",
+      "deliveries": [
+        {
+          "materialId": "MAT-liveLog",
+          "versionId": "6957c522-a50c-4e53-9131-2701979f7887"
+        }
+      ]
+    }
+  ],
+  "capture": {
+    "role": "viewer",
+    "browser": "Chrome via Playwright",
+    "source": "本机运行中的 demo2 真实页面",
+    "note": "只读查看用户本轮测试结果；并非完整流程重新演示"
+  },
+  "files": [
+    {
+      "file": "01-待验收-任务人员与交付全貌.png",
+      "width": 1698,
+      "height": 2187,
+      "bytes": 257427
+    },
+    {
+      "file": "02-两名人员-签到签退与执行报告.png",
+      "width": 1641,
+      "height": 935,
+      "bytes": 93190
+    },
+    {
+      "file": "03-材料草稿与已确认V1.png",
+      "width": 2400,
+      "height": 1500,
+      "bytes": 260723
+    },
+    {
+      "file": "04-任务已提交-等待组织者验收.png",
+      "width": 1641,
+      "height": 414,
+      "bytes": 63637
+    }
+  ]
+}

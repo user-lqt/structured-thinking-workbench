@@ -65,6 +65,7 @@ window.WB.views = window.WB.views || {};
         ${asset.kind === 'link' ? `<label>素材链接<input data-asset-field="url" value="${E(asset.url || '')}" placeholder="https://…"${disabled} /></label>` : ''}
         <details class="library-content"><summary>正文与摘要 · ${String(asset.content || '').length} 字</summary><textarea data-asset-field="content" aria-label="资料正文" placeholder="粘贴可读正文；图片填写画面说明，链接或附件填写人工核对的摘要" maxlength="${TEXT_LIMIT}"${disabled}>${E(asset.content || '')}</textarea></details>
         <label class="library-use"><input type="checkbox" data-asset-field="useForAi"${L.included(asset) ? ' checked' : ''}${canWrite() && eligible ? '' : ' disabled'} />用于 AI 生成${knowledge && !eligible ? '（先填写正文并核验）' : ''}</label>
+        ${knowledge ? `<label class="library-use"><input type="checkbox" data-asset-field="alwaysInclude"${asset.alwaysInclude ? ' checked' : ''}${disabled} />固定引用（已勾选用于 AI 时，跳过目录筛选）</label><details><summary>文档目录 · ${L.chapters(asset).length} 节</summary><ul>${L.chapters(asset).map(x => `<li>${E(x.title)}</li>`).join('')}</ul></details>` : ''}
         ${knowledge && asset.status === 'example' ? '<p class="library-note">教学示例，仅用于演示；请用真实规范替换。</p>' : ''}
         <div class="library-links">${source ? `<a href="${E(source)}" target="_blank" rel="noreferrer">查看来源</a>` : ''}${link ? `<a href="${E(link)}" target="_blank" rel="noreferrer">打开素材</a>` : ''}${asset.dataUrl ? `<button class="button button-ghost" data-asset-download="${index}">下载原件</button>` : ''}</div>
         <div class="asset-foot"><small>${E(fmtDateTime(asset.updatedAt || asset.createdAt))}</small><button class="row-remove" data-asset-remove="${index}" title="删除资料"${disabled}>×</button></div>
@@ -82,7 +83,7 @@ window.WB.views = window.WB.views || {};
       && (!query || [asset.name, asset.content, asset.source, asset.note, ...(asset.tags || [])].join(' ').toLowerCase().includes(query)));
     $('#assetSummary').textContent = `${mode === 'knowledge' ? '知识' : '素材'} ${records.length} 项，显示 ${list.length} 项，已选择 AI 引用 ${records.filter(({ asset }) => L.included(asset)).length} 项`;
     $('#assetList').innerHTML = `<p class="library-note">${mode === 'knowledge'
-      ? '导入 .md / .txt / .docx 或新建条目 → 补充来源与适用范围 → 人工核验 → 勾选用于 AI 生成。修改已核验的正文或来源后，需要重新核验。'
+      ? '导入 .md / .txt / .docx 或新建条目 → 补充来源与适用范围 → 人工核验 → 勾选用于 AI 生成。修改已核验的正文或来源后，需要重新核验。材料的 AI 生成会先按 Markdown 标题选择长资料章节；短资料直接引用。通用要求可设为固定引用。下方预览是原有直接引用范围，实际章节见生成材料的引用记录。'
       : '图片和小附件可随项目包保存；文本正文可供 AI 引用。图片内容、链接网页及 PDF 不会自动识别，请补充摘要并保留原件。'}</p>
       ${list.length ? `<div class="asset-grid">${list.map(({ asset, index }) => assetCard(asset, index)).join('')}</div>` : `<div class="card"><div class="empty"><strong>${records.length ? '没有匹配的资料' : '还没有资料'}</strong>新建、导入，或载入教学示例，再登记来源与用途。</div></div>`}
       <details class="library-context"><summary>预览当前选中的 AI 引用内容</summary><pre>${E(JSON.stringify(L.context(current.assets, mode), null, 2))}</pre></details>`;
@@ -159,7 +160,7 @@ window.WB.views = window.WB.views || {};
     if (!guard()) return false;
     if (key === 'status' && value === 'verified' && (!U.text(asset.source) || !U.text(asset.content))) { window.WB.toast('核验前请填写来源和正文'); return false; }
     if (key === 'useForAi' && value && L.isKnowledge(asset) && (!['verified', 'example'].includes(asset.status) || !U.text(asset.content))) return false;
-    const invalidates = L.isKnowledge(asset) && asset.status === 'verified' && !['status', 'useForAi'].includes(key) && JSON.stringify(asset[key]) !== JSON.stringify(value);
+    const invalidates = L.isKnowledge(asset) && asset.status === 'verified' && !['status', 'useForAi', 'alwaysInclude'].includes(key) && JSON.stringify(asset[key]) !== JSON.stringify(value);
     asset[key] = value;
     if (invalidates || key === 'status' && value === 'pending') { asset.status = 'pending'; asset.useForAi = false; }
     asset.updatedAt = new Date().toISOString();
