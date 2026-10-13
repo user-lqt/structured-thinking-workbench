@@ -6,7 +6,7 @@ import '../core/deliveries.js';
 
 const Task = globalThis.WB.taskLifecycle;
 const Delivery = globalThis.WB.deliveries;
-const normaliseDoc = (doc, imported = false) => Delivery.normalise({ ...doc, wbs: (doc.wbs || []).map((task, i) => (imported ? Task.forSharedImport : Task.normalise)({ ...task, id: task.id || `task-${i + 1}`, responsiblePersonId: String(task.responsiblePersonId || '') })) }, imported);
+const normaliseDoc = (doc, imported = false) => Delivery.normalise({ ...doc, risks: (doc.risks || []).map((r,i)=>({...r,id:r.id || `risk-legacy-${i+1}`})), wbs: (doc.wbs || []).map((task, i) => (imported ? Task.forSharedImport : Task.normalise)({ ...task, id: task.id || `task-${i + 1}`, responsiblePersonId: String(task.responsiblePersonId || '') })) }, imported);
 
 const token = () => randomBytes(24).toString('base64url');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -47,6 +47,15 @@ export function sharedProjects(directory) {
       if (session.role === 'viewer') return { status: 403, error: '只读邀请不能修改项目。' };
       if (revision !== row.revision) return { status: 409, error: '另一位成员已保存新版本。你的本机草稿已保留，请先下载草稿，再载入共享版本。', revision: row.revision };
       const proposed = normaliseDoc(doc), ids = new Set();
+      const riskIds = new Set(), drillIds = new Set();
+      for (const r of proposed.risks || []) { if (!r.id || riskIds.has(r.id)) return {status:422,error:'风险编号不能为空或重复。'}; riskIds.add(r.id); }
+      for (const d of proposed.drills || []) { if (!d.id || drillIds.has(d.id)) return {status:422,error:'演练编号不能为空或重复。'}; drillIds.add(d.id); }
+      const execution = d => JSON.stringify({title:d.title, riskId:d.riskId, mode:d.mode, trigger:d.trigger, impact:d.impact, status:d.status, startedAt:d.startedAt, finishedAt:d.finishedAt, outcome:d.outcome, decisions:d.decisions, planSnapshot:d.planSnapshot,participants:d.participants,participantIds:d.participantIds,leaderId:d.leaderId,rollback:d.rollback,escalation:d.escalation,parentId:d.parentId,steps:(d.steps||[]).map(s=>({id:s.id,text:s.text,note:s.note||'',result:s.result||'unverified',evidence:s.evidence||'',expected:s.expected,owner:s.owner,personId:s.personId,resources:s.resources,resourceId:s.resourceId}))});
+      for (const previous of row.doc.drills || []) {
+        if (previous.status !== 'done' || !previous.mode) continue;
+        const next = proposed.drills?.find(d=>d.id===previous.id);
+        if (!next || execution(next)!==execution(previous)) return {status:422,error:'已结束演练的执行记录必须保留；请发起复测。'};
+      }
       const materialIds = new Set();
       for (const [key, material] of Object.entries(proposed.materials || {})) {
         if (materialIds.has(material.materialId)) return { status: 422, error: '材料编号不能重复。' };

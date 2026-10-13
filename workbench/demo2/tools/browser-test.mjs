@@ -207,7 +207,7 @@ try {
   const kb = owner.locator(`[data-asset="${kbIndex}"]`);
   await kb.locator('[data-asset-field="name"]').fill('课堂知识测试');
   await kb.locator('[data-asset-field="source"]').fill('小组核验的测试文件');
-  await kb.locator('summary').click();
+  await kb.locator('.library-content > summary').click();
   await kb.locator('[data-asset-field="content"]').fill('来源正文：布置前先核对设备清单。');
   await kb.locator('[data-asset-field="status"]').selectOption('verified');
   await kb.locator('[data-asset-field="useForAi"]').check();
@@ -234,7 +234,7 @@ try {
   } finally { await owner.unroute('**/api/material'); }
   check(workflowRequest.input.引用资料.知识库.资料.some((a) => a.正文.includes('核对设备清单')), 'Workflow request contains selected knowledge body');
   await owner.evaluate(() => WB.gotoTarget({ view: 'assets' }));
-  await kb.locator('summary').click();
+  await kb.locator('.library-content > summary').click();
   await kb.locator('[data-asset-field="content"]').fill('正文发生变更，需要重新核验。');
   check(await kb.locator('[data-asset-field="status"]').inputValue() === 'pending' && !(await kb.locator('[data-asset-field="useForAi"]').isChecked()), 'Editing verified knowledge withdraws its confirmation and AI selection');
   await owner.locator('#assetFile').setInputFiles({ name: '导入规范.md', mimeType: 'text/markdown', buffer: Buffer.from('# 导入资料\n这是待核验的测试正文。') });
@@ -625,6 +625,51 @@ try {
   await returning.locator('[data-duty-logout]').click();
   await returning.locator('[data-personnel-form="auth"]').waitFor();
   check(await returning.evaluate(() => !localStorage.getItem('demo2-staff-session') && !WB.personnel.account), 'Personal account logout clears authenticated UI and session');
+  // Shared risk drill -> named corrective task; data lives only in this test server.
+  await owner.evaluate(() => { WB.store.state.risks.push(WB.store.normaliseRisk({id:'shared-drill-risk',name:'测试断网预案',trigger:'签到失败',response:'纸质签到'})); WB.store.save(); WB.views.drills.startFromRisk('shared-drill-risk'); });
+  // Use real clicks and keyboard input: fill() alone hides focus loss caused by click delegation.
+  const drillTitle = owner.locator('[data-drill-field="title"]');
+  await drillTitle.click();
+  check(await drillTitle.evaluate(el => document.activeElement === el), 'Clicking drill text field retains focus');
+  await drillTitle.press('End'); await owner.keyboard.type(' - focus test', {delay:40});
+  check((await drillTitle.inputValue()).endsWith(' - focus test'), 'Drill text accepts continuous real keyboard input');
+  const expectedField = owner.locator('[data-step-field="expected"]');
+  await expectedField.click();
+  await owner.keyboard.type('2 minutes', {delay:40});
+  await owner.evaluate(async () => WB.sync.flush());
+  check(await expectedField.evaluate(el => document.activeElement === el && el.value === '2 minutes'), 'Clicking step field and saving shared data preserve focus and typed text');
+  await owner.locator('[data-drill-participant]').first().click();
+  check(await owner.locator('[data-drill-participant]').first().isChecked() && await owner.evaluate(() => WB.store.state.drills[0].participantIds.length === 1), 'Native participant checkbox clicks are retained without replacing the form');
+  await owner.locator('[data-step-field="expected"]').fill('2分钟内获取名单');
+  await owner.locator('[data-drill-begin]').click();
+  await owner.locator('[data-step-field="result"]').selectOption('issue');
+  await owner.locator('[data-step-field="note"]').fill('名单没有打印');
+  await owner.locator('[data-drill-field="outcome"]').fill('安排打印并复测');
+  await owner.locator('[data-drill-finish]').click();
+  await owner.locator('[data-finding-field="ownerId"]').selectOption(organizerId);
+  await owner.locator('[data-finding-field="due"]').fill('2026-12-01');
+  await owner.locator('[data-finding-field="output"]').fill('打印名单与存放位置照片');
+  await owner.locator('[data-finding-create]').click();
+  await owner.evaluate(async () => WB.sync.flush());
+  await owner.waitForFunction(() => document.querySelector('#sharedBar').textContent.includes('已同步'));
+  check(await owner.evaluate(() => {const d=WB.store.state.drills[0],t=WB.store.state.wbs.find(t=>t.id===d.steps[0].taskId);return t?.status==='todo' && t.drillId===d.id && t.responsiblePersonId===WB.personnel.snapshot.me.id;}), 'Shared finding creates real assigned task without completing or accepting it');
+  const protectedRecord=await owner.evaluate(async () => {
+    const id=WB.store.state.activeId,session=JSON.parse(localStorage.getItem('demo2-shared-sessions'))[id];
+    const headers={'Content-Type':'application/json',Authorization:`Bearer ${session.token}`};
+    const data=await (await fetch(`/api/shared/${id}`,{headers})).json();
+    data.doc.drills[0].outcome='篡改已结束结论';
+    return (await fetch(`/api/shared/${id}`,{method:'PUT',headers,body:JSON.stringify({revision:data.revision,doc:data.doc})})).status;
+  });
+  check(protectedRecord===422, 'Server rejects rewriting ended execution history');
+  await owner.reload();await owner.waitForFunction(()=>Boolean(WB?.gotoTarget));
+  await owner.evaluate(()=>{WB.store.state.ui.drillId=WB.store.state.drills[0].id;WB.gotoTarget({view:'drills'});});
+  await owner.locator('[data-drill-retest]').waitFor();
+  check(await owner.locator('[data-finding-create]').count()===0 && await owner.locator('[data-task-goto]').count()===1,'Shared task link survives reload and prevents duplicate task creation');
+  await owner.setViewportSize({width:1440,height:1000});
+  await owner.screenshot({path:path.join(root,'generated','qa-risk-drill-desktop.png'),fullPage:true});
+  await owner.setViewportSize({width:390,height:844});
+  check(await owner.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Risk drill review fits phone width');
+  await owner.screenshot({path:path.join(root,'generated','qa-risk-drill-phone.png'),fullPage:true});
   const localContext = await browser.newContext(), local = await localContext.newPage();
   local.on('pageerror', (error) => errors.push(error.message));
   await local.goto(base); await local.waitForFunction(() => Boolean(WB?.gotoTarget));
@@ -635,6 +680,85 @@ try {
   await local.reload(); await taskState(local, 'doing');
   check(await local.evaluate((id) => !WB.sync.role && WB.store.state.wbs.find((row) => row.id === id).lifecycle.events.at(-1).origin === 'local', lifecycleTask), 'Offline execution persists across reload; acceptance awaits real project links');
   check(await local.evaluate(() => WB.store.state.wbs[0].legacyReporting.progress === 100 && WB.store.state.wbs[0].needsVerification), 'Legacy completion history and verification survive real browser reload');
+  // 旧预设演练在加载时补正文，新演练与结束回写保持一致。
+  local.on('dialog', dialog => dialog.accept());
+  await local.evaluate(() => {
+    WB.store.state.drills = [{ id: 'legacy-empty', scenarioId: 'tech-av', title: '旧演练', status: 'running', decisions: '保留决策',
+      steps: [{ id: 'tech-av-s1', done: true, note: '已有备注' }, { id: 'tech-av-s2', done: false, note: '' }] }];
+    WB.store.save();
+  });
+  await local.reload(); await local.waitForFunction(() => Boolean(WB?.gotoTarget));
+  await local.evaluate(() => { WB.store.state.ui.drillId = 'legacy-empty'; WB.gotoTarget({ view: 'drills' }); });
+  check(await local.locator('.drill-step-text').first().innerText().then(text => text.includes('技术岗')), 'Legacy drill text restored after browser reload');
+  check(await local.locator('[data-step-id="tech-av-s1"][data-step-field="result"]').inputValue() === 'unverified' && await local.locator('[data-step-id="tech-av-s1"][data-step-field="note"]').inputValue() === '已有备注', 'Legacy checkbox is preserved as history, not fabricated verification');
+  await local.evaluate(() => { WB.store.state.risks.push(WB.store.normaliseRisk({id:'custom-risk',name:'自定义签到断网',trigger:'连续两次签到失败',response:'启动纸质签到',category:'tech',phase:'execute'})); WB.store.save(); WB.views.drills.startFromRisk('custom-risk'); });
+  await local.locator('[data-step-field="expected"]').fill('2分钟内可使用纸质名单');
+  await local.locator('[data-step-add]').click();
+  await local.locator('[data-step-field="text"]').last().fill('恢复后补录签到');
+  await local.locator('[data-step-field="expected"]').last().fill('补录记录无重复');
+  await local.locator('[data-drill-begin]').click();
+  await local.locator('[data-step-field="result"]').first().selectOption('issue');
+  await local.locator('[data-step-field="note"]').first().fill('纸质名单未准备');
+  await local.locator('[data-drill-field="outcome"]').fill('需要预先打印名单；补录未验证');
+  await local.locator('[data-drill-finish]').click();
+  check(await local.evaluate(() => WB.store.state.drills[0].status==='done' && WB.store.state.risks.find(r=>r.id==='custom-risk').response==='启动纸质签到'), 'Ending custom drill preserves findings without silently overwriting plan');
+  check(await local.locator('[data-step-field="note"]').first().isDisabled(), 'Ended execution records locked');
+  await local.evaluate(() => { WB.store.state.risks.find(r=>r.id==='custom-risk').name='改名后的签到风险'; WB.store.save(); });
+  await local.locator('[data-plan-field="response"]').fill('事先打印名单，断网时启用纸质签到');
+  await local.locator('[data-plan-apply]').click();
+  check(await local.evaluate(() => WB.store.state.risks.find(r=>r.id==='custom-risk').planHistory.length===1 && WB.store.state.risks.find(r=>r.id==='custom-risk').name==='改名后的签到风险'), 'Explicit plan revision uses stable ID and preserves renamed risk');
+  await local.reload(); await local.waitForFunction(() => Boolean(WB?.gotoTarget));
+  await local.evaluate(() => {WB.store.state.ui.drillId=WB.store.state.drills[0].id;WB.gotoTarget({view:'drills'});});
+  check(await local.locator('[data-plan-apply]').isDisabled(), 'Applied plan revision and ended drill persist across refresh');
+  await local.locator('[data-drill-retest]').click();
+  check(await local.evaluate(() => WB.store.state.drills[0].parentId===WB.store.state.drills[1].id && WB.store.state.drills[0].steps.every(s=>s.result==='unverified' && !s.taskId)), 'Retest links original record and resets all results');
+  await local.locator('[data-drill-field="mode"]').selectOption('field');
+  await local.locator('[data-drill-begin]').click();
+  await local.locator('[data-step-field="result"]').first().selectOption('pass');
+  await local.locator('[data-drill-field="outcome"]').fill('现场验证');
+  await local.locator('[data-drill-finish]').click();
+  check(await local.evaluate(() => WB.store.state.drills[0].status==='running'), 'Field pass requires evidence');
+  await local.locator('[data-step-field="evidence"]').first().fill('课堂测试记录：1分20秒取出名单');
+  await local.locator('[data-drill-finish]').click();
+  check(await local.evaluate(() => WB.store.state.drills[0].status==='done'), 'Field test can end with evidence and honest unverified steps');
+  await local.evaluate(() => {WB.store.setUser({name:'只读',role:'viewer'});});
+  const drillCount=await local.evaluate(() => WB.store.state.drills.length);
+  await local.evaluate(() => WB.views.drills.startFromRisk('custom-risk'));
+  check(await local.evaluate(() => WB.store.state.drills.length)===drillCount,'Read-only direct drill entry cannot mutate records');
+  await local.evaluate(() => WB.store.setUser({name:'离线负责人',role:'organizer'}));
+  // AI suggestions are drafts and use selected knowledge; this is a mock, not a live model claim.
+  await local.route('**/api/structure',route=>route.fulfill({json:{data:{steps:[{text:'检查备用签到名单'}]}}}));
+  await local.evaluate(()=>{WB.ai.ready=true;WB.views.drills.startFromRisk('custom-risk');});
+  const beforeAi=await local.locator('[data-step-field="text"]').count();
+  await local.locator('[data-drill-ai]').click();await local.locator('[data-ai-adopt]').waitFor();
+  check(await local.locator('[data-step-field="text"]').count()===beforeAi,'AI draft does not replace confirmed steps');
+  await local.locator('[data-ai-adopt]').click();
+  check(await local.locator('[data-step-field="text"]').count()===beforeAi+1,'Human adoption appends AI suggestions as unverified steps');
+  await local.unroute('**/api/structure');
+  // 目录选章使用受控模型响应，测试真实页面、请求内容与刷新持久化。
+  const knowledgeCalls = [];
+  await local.route('**/api/material', async route => {
+    const body = route.request().postDataJSON(); knowledgeCalls.push(body);
+    const data = body.input.目录 ? { sectionIds: ['d1-s2'] } : { title: '知识引用测试', sections: [{ heading: '执行要求', body: '工作人员提前30分钟到场。' }] };
+    await route.fulfill({ json: { data } });
+  });
+  await local.evaluate(() => {
+    WB.store.state.assets = [{ id: 'browser-kb', collection: 'knowledge', name: '测试手册', source: '测试来源', status: 'example', useForAi: true,
+      content: '# 手册\n通用介绍\n## 签到\n提前30分钟到场\n## 财务\n' + '不相关内容'.repeat(800) }];
+    WB.store.state.project.outputs.runbook = true;
+    WB.store.state.materialSections.runbook = ['执行要求'];
+    WB.store.state.ui.assetCollection = 'knowledge'; WB.store.save(); WB.gotoTarget({ view: 'assets' });
+  });
+  check(await local.locator('[data-asset-field="alwaysInclude"]').count() === 1 && await local.getByText('文档目录 · 3 节', { exact: true }).count() === 1, 'Knowledge page exposes directory and fixed-reference setting');
+  await local.evaluate(() => { WB.ai.ready = true; WB.gotoTarget({ view: 'material' }); });
+  check(await local.evaluate(() => WB.views.material.generateOne('runbook')), 'Two-stage generation succeeds in browser');
+  check(knowledgeCalls.length === 2 && !JSON.stringify(knowledgeCalls[0]).includes('提前30分钟') && JSON.stringify(knowledgeCalls[1]).includes('提前30分钟') && !JSON.stringify(knowledgeCalls[1]).includes('不相关内容'), 'Browser sends titles first and only selected chapter text second');
+  await local.reload();
+  await local.waitForFunction(() => Boolean(WB?.gotoTarget));
+  await local.evaluate(() => WB.gotoTarget({ view: 'material' }));
+  await local.locator('[data-material="runbook"] .library-context > summary').click();
+  check(await local.locator('[data-material="runbook"] .library-context').innerText().then(text => text.includes('按目录选择章节') && text.includes('提前30分钟')), 'Material reference snapshot persists after browser reload');
+  await local.unroute('**/api/material');
   await local.evaluate(() => { WB.store.setUser({ name: '只读本地访客', role: 'viewer' }); WB.gotoTarget({ view: 'tasks', taskView: 'table', phase: 'all' }); });
   check(await local.locator('[data-task-action]').evaluateAll((buttons) => buttons.length > 0 && buttons.every((button) => button.disabled)), 'Offline viewer permissions disable execution controls after role change');
   check(errors.length === 0, `No browser errors: ${errors.join('; ')}`);

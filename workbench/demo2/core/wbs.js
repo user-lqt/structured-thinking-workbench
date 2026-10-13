@@ -295,9 +295,13 @@ window.WB = window.WB || {};
     riskReview: (s) => {
       const risks = s.risks || [];
       const withResponse = risks.filter((item) => filled(item.response)).length;
-      const drills = (s.drills || []).filter((item) => item.status === 'done').length;
+      const ended = (s.drills || []).filter(item => item.status === 'done');
+      const drills = ended.length;
+      const latest = ended.filter(d => !ended.some(next => next.parentId === d.id));
+      const unresolved = latest.some(d => !d.steps?.length || d.steps.some(step => !['pass', 'na'].includes(step.result)));
+      if (drills && unresolved) return partialVerdict(`已结束 ${drills} 场演练，仍有问题或未验证记录，请核对整改与复测`, { view: 'drills' });
       if (risks.length && withResponse >= risks.length && drills) {
-        return readyVerdict(`风险台账 ${risks.length} 项都写了处置措施，并完成 ${drills} 次变更演练`);
+        return readyVerdict(`风险台账 ${risks.length} 项都写了处置措施，并有 ${drills} 场演练记录；有效性仍需人工审核`);
       }
       if (risks.length && withResponse >= risks.length) {
         return partialVerdict('风险台账都写了处置措施，但还没做过变更演练', { view: 'drills' });

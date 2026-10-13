@@ -90,6 +90,7 @@ window.WB = window.WB || {};
       task: text(row.task),
       owner: text(row.owner),
       responsiblePersonId: text(row.responsiblePersonId),
+      drillId: text(row.drillId), findingId: text(row.findingId),
       due: text(row.due),
       duration: row.duration === '' || row.duration == null ? '' : Number(row.duration) || '',
       output: text(row.output),
@@ -102,8 +103,10 @@ window.WB = window.WB || {};
     };
   }
 
-  function normaliseRisk(risk) {
+  function normaliseRisk(risk, index) {
     return {
+      id: text(risk.id) || (Number.isInteger(index) ? `risk-legacy-${index + 1}` : uid("risk")),
+      planHistory: Array.isArray(risk.planHistory) ? risk.planHistory : [],
       name: text(risk.name),
       category: risk.category || 'safety',
       phase: risk.phase || 'prepare',
@@ -143,12 +146,13 @@ window.WB = window.WB || {};
   function normaliseDrill(item) {
     return {
       id: item.id || uid('drill'),
+      ...item,
       scenarioId: text(item.scenarioId),
       title: text(item.title),
       category: text(item.category),
       phase: window.WB.util.PHASE_ORDER[item.phase] != null ? item.phase : 'execute',
       riskName: text(item.riskName),
-      startedAt: item.startedAt || nowIso(),
+      startedAt: item.status === 'draft' ? '' : item.startedAt || '',
       finishedAt: item.finishedAt || '',
       decisions: text(item.decisions),
       outcome: text(item.outcome),
@@ -156,10 +160,13 @@ window.WB = window.WB || {};
       followUp: Array.isArray(item.followUp) ? item.followUp.map(String) : [],
       writeRisk: item.writeRisk !== false,
       aiRisk: item.aiRisk && typeof item.aiRisk === 'object' ? item.aiRisk : null,
-      status: ['running', 'done'].includes(item.status) ? item.status : 'running',
+      status: ['draft', 'running', 'done'].includes(item.status) ? item.status : 'running',
       steps: Array.isArray(item.steps) ? item.steps.map((step, index) => ({
+        ...step,
+        result: ["pass", "issue", "unverified", "na"].includes(step.result) ? step.result : "unverified",
+        legacyDone: step.legacyDone === true || (!step.result && step.done === true),
         id: text(step.id) || `${item.id || 'drill'}-s${index + 1}`,
-        text: text(step.text),
+        text: text(step.text) || text(window.WB.drills?.byId(text(item.scenarioId))?.steps.find((preset) => preset.id === text(step.id))?.text),
         done: Boolean(step.done),
         note: text(step.note)
       })) : [],

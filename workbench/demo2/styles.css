@@ -3010,3 +3010,13 @@ body.is-gesturing, body.is-gesturing * { user-select: none !important; -webkit-u
 #taskResponsibilityForm label { display: grid; gap: 6px; }
 #taskResponsibilityForm select { width: 100%; height: 40px; padding: 8px 10px; font: inherit; color: inherit; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
 @media (max-width: 600px) { #taskResponsibilityForm { grid-template-columns: 1fr; } }
+
+/* Risk drill forms reuse the existing card system; compact two-column desktop layout. */
+.drill-runner .drill-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 16px; }
+.drill-runner label, .drill-runner fieldset { min-width: 0; }
+.drill-runner input:not([type="checkbox"]), .drill-runner select, .drill-runner textarea { width:100%; min-width:0; box-sizing:border-box; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:var(--surface); color:var(--text); }
+.drill-runner p, .drill-runner b, .drill-runner pre { overflow-wrap:anywhere; }
+.drill-runner input:disabled, .drill-runner textarea:disabled, .drill-runner select:disabled { opacity:.8; }
+.drill-runner fieldset label { display:inline-flex; flex-direction:row; align-items:center; margin:6px; }
+.drill-runner > hr { margin:24px 0; border:0; border-top:1px solid var(--line); }
+@media(max-width:640px) { .drill-runner .drill-fields { grid-template-columns:minmax(0,1fr); } .drill-grid { grid-template-columns:minmax(0,1fr); } }

@@ -80,7 +80,7 @@ globalThis.window.clearInterval = noop;
 
 const MODULES = [
   'schemas.js', 'materials.js',
-  'core/util.js', 'core/deliveries.js', 'core/task-lifecycle.js', 'core/library.js', 'core/personnel.js', 'core/inventory.js', 'core/qr.js', 'core/signup.js', 'core/store.js', 'core/sync.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/drills.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
+  'core/util.js', 'core/deliveries.js', 'core/task-lifecycle.js', 'core/library.js', 'core/personnel.js', 'core/inventory.js', 'core/qr.js', 'core/signup.js', 'core/drills.js', 'core/store.js', 'core/sync.js', 'core/skills.js', 'core/risk.js', 'core/wbs.js', 'core/guide.js', 'core/ai.js', 'core/interview.js', 'core/markdown.js', 'core/ooxml.js', 'core/docx.js', 'core/export.js',
   'views/projects.js', 'views/overview.js', 'views/manifest.js', 'views/agenda.js', 'views/tasks.js', 'views/decision.js',
   'views/risk.js', 'views/resources.js', 'views/drills.js', 'views/material.js', 'views/workflow.js', 'views/assets.js', 'views/signup.js', 'views/help.js',
   'app.js'
@@ -575,6 +575,13 @@ check('资源检查：仍有余量 → 正常', RCheck({ available: 3, assigned:
 const drill = store.normaliseDrill({ id: 'd1', title: 'T', steps: [{ text: '第一步' }], rollback: '条件', followUp: ['改进项'], status: 'done' });
 check('演练归一化保留步骤文本与 id', drill.steps[0]?.text === '第一步' && Boolean(drill.steps[0]?.id), JSON.stringify(drill.steps));
 check('演练归一化保留回退条件与改进项', drill.rollback === '条件' && drill.followUp.length === 1);
+const legacyDrill = store.normaliseDrill({ id: 'legacy-drill', scenarioId: 'tech-av', status: 'running', decisions: '保留决策', steps: [
+  { id: 'tech-av-s1', done: true, note: '保留记录' },
+  { id: 'tech-av-s2', text: '自定义处置', done: false },
+  { id: 'legacy-drill-ai3', done: false }
+] });
+check('旧演练：按预设步骤编号恢复正文，保留完成标记及备注', legacyDrill.steps[0].text === window.WB.drills.byId('tech-av').steps[0].text && legacyDrill.steps[0].done && legacyDrill.steps[0].note === '保留记录');
+check('旧演练：不覆盖自定义正文，不按位置编造AI步骤', legacyDrill.steps[1].text === '自定义处置' && legacyDrill.steps[2].text === '' && legacyDrill.decisions === '保留决策');
 
 /* ── 4. 示例项目迁移 ────────────────────── */
 const samplePath = path.join(root, 'samples/示例项目-校园科技文化节.json');
@@ -4266,6 +4273,80 @@ check('箭头跟线一个色（marker 里的 path 不写 fill 默认是纯黑，
   let refused = false;
   try { D.publish(empty, 'empty', { id: 'empty-version', actor }); } catch { refused = true; }
   check('交付：只有名称或空栏目不能形成可提交版本', refused && !empty.materials.empty.deliveries.length);
+}
+
+
+/* 目录选择、正文提取及生成流程回归：不调用外部模型。 */
+{
+  const L = window.WB.library, saved = store.state, oldAi = window.WB.ai;
+  const kb = { id: 'chapter-test', collection: 'knowledge', name: '演练手册', status: 'verified', source: '测试文件', useForAi: true,
+    content: '# 现场\n父级要求\n## 签到\n提前30分钟\n```txt\n# 不是标题\n```\n## 财务\n' + '无关财务正文'.repeat(700) };
+  const fixed = { ...kb, id: 'fixed-test', name: '通用要求', content: '固定的通用要求', alwaysInclude: true };
+  try {
+    let calls = 0, selectorInput;
+    const choose = async input => { calls++; selectorInput = input; return { sectionIds: ['d1-s2', 'd1-s2'] }; };
+    const prepared = await L.prepare([kb, fixed, { ...kb, status: 'pending' }], { 产出: '执行手册' }, choose);
+    check('目录引用：先发标题、不发送正文或未核验资料', calls === 1 && !JSON.stringify(selectorInput).includes('提前30分钟') && !JSON.stringify(selectorInput).includes('无关财务正文') && selectorInput.目录.length === 3);
+    check('目录引用：代码块伪标题不拆分', L.chapters(kb).length === 3);
+    check('目录引用：去重、保留父级要求及固定资料、排除未选正文', prepared.资料.length === 3 && JSON.stringify(prepared).includes('父级要求') && JSON.stringify(prepared).includes('固定的通用要求') && !JSON.stringify(prepared).includes('无关财务正文'));
+    calls = 0;
+    const short = await L.prepare([{ ...kb, content: '短资料' }], {}, choose);
+    check('目录引用：旧短资料无需额外模型请求', calls === 0 && short.资料[0].正文 === '短资料');
+    let failed = false;
+    try { await L.prepare([kb], {}, async () => ({ sectionIds: ['made-up'] })); } catch { failed = true; }
+    check('目录引用：拒绝虚构编号，不降级为无知识生成', failed);
+    failed = false;
+    try { await L.prepare([{ ...fixed, content: '字'.repeat(16001) }], {}, choose); } catch { failed = true; }
+    check('目录引用：固定要求超限停止、不截断', failed);
+    const long = await L.prepare([kb], {}, async () => ({ sectionIds: ['d1-s3'] }));
+    check('目录引用：长章节截断明确可见', long.资料.some(x => x.正文已截断 && x.正文.length === 3000));
+    const mutable = structuredClone(kb);
+    const frozen = await L.prepare([mutable], {}, async () => { mutable.content = '已修改'; return { sectionIds: ['d1-s2'] }; });
+    check('目录引用：异步请求使用资料快照', JSON.stringify(frozen).includes('提前30分钟'));
+
+    store.state = store.freshState(); store.setUser({ name: '章节测试', role: 'organizer' }); store.createProject({ name: '隔离测试' });
+    store.state.assets = [kb, fixed]; store.state.materialSections.runbook = ['执行要求'];
+    const requests = [];
+    window.WB.ai = { ...oldAi, run: async (skill, input) => {
+      requests.push(input);
+      return input.目录 ? { sectionIds: ['d1-s2'] } : { title: '执行手册', sections: [{ heading: '执行要求', body: '根据签到章节执行。' }] };
+    } };
+    check('目录引用：材料生成完成两次调用', await window.WB.views.material.generateOne('runbook', { silent: true }) && requests.length === 2);
+    check('目录引用：第二次仅包含选中正文与引用记录', JSON.stringify(requests[1].知识库).includes('提前30分钟') && !JSON.stringify(requests[1].知识库).includes('无关财务正文') && store.state.materials.runbook.knowledgeReferences.资料.length === 3);
+    const bundle = store.exportBundle(); store.importBundle(bundle);
+    check('目录引用：项目包往返保留固定设置和引用快照', store.state.assets[1].alwaysInclude && store.state.materials.runbook.knowledgeReferences.资料.length === 3);
+    const prior = JSON.stringify(store.state.materials.runbook);
+    store.setUser({ name: '只读', role: 'viewer' }); requests.length = 0;
+    check('目录引用：只读不能发起生成或改固定引用', !await window.WB.views.material.generateOne('runbook', { silent: true }) && requests.length === 0 && !window.WB.views.assets.setField(store.state.assets[0], 'alwaysInclude', true));
+    store.setUser({ name: '章节测试', role: 'organizer' });
+    window.WB.ai.run = async () => null;
+    check('目录引用：选择失败保留旧材料', !await window.WB.views.material.generateOne('runbook', { silent: true }) && JSON.stringify(store.state.materials.runbook) === prior);
+    window.WB.ai.run = async () => { store.state.activeId = 'other-project'; return { sectionIds: ['d1-s2'] }; };
+    check('目录引用：选择期间切换项目不写回', !await window.WB.views.material.generateOne('runbook', { silent: true }) && JSON.stringify(store.state.materials.runbook) === prior);
+  } finally { store.state = saved; window.WB.ai = oldAi; }
+}
+
+
+/* Risk/drill migration and portable linkage contract. */
+{
+  const saved=store.state;
+  try {
+    store.state=store.freshState();store.setUser({name:'演练测试',role:'organizer'});store.createProject({name:'隔离演练'});
+    const raw={name:'旧风险',response:'纸质签到'};
+    check('风险：旧编号迁移稳定',store.normaliseRisk(raw,0).id===store.normaliseRisk({...raw,name:'改名'},0).id);
+    const risk=store.normaliseRisk({...raw,id:'risk-test',planHistory:[{drillId:'drill-test',before:{response:'旧'},after:{response:'新'}}]});
+    store.state.risks=[risk];
+    store.state.drills=[store.normaliseDrill({id:'drill-test',riskId:risk.id,status:'done',mode:'tabletop',parentId:'previous-drill',planSnapshot:{response:'纸质签到'},planProposal:{response:'预打印'},planApplied:{at:'2026-10-13',fields:['response']},participantIds:['p1','p2'],steps:[{id:'s1',text:'启用名单',result:'issue',note:'缺名单',taskId:'fix-task',resourceId:'r1',evidence:'记录1',expected:'两分钟'}]})];
+    store.state.wbs=[store.normaliseRow({id:'fix-task',task:'补充名单',drillId:'drill-test',findingId:'s1',lifecycle:window.WB.taskLifecycle.fresh()})];
+    const bundle=structuredClone(store.exportBundle());store.importBundle(bundle);
+    check('演练：项目包保留风险编号、修订历史与快照',store.state.risks[0].id==='risk-test' && store.state.risks[0].planHistory.length===1 && store.state.drills[0].planSnapshot.response==='纸质签到');
+    check('演练：项目包保留整改、资源与多人关联',store.state.drills[0].steps[0].taskId==='fix-task' && store.state.drills[0].steps[0].resourceId==='r1' && store.state.drills[0].participantIds.length===2 && store.state.wbs[0].drillId==='drill-test');
+    check('演练：复测与确认修订标记持久化',store.state.drills[0].parentId==='previous-drill' && store.state.drills[0].planApplied.fields[0]==='response');
+    const old=store.normaliseDrill({status:'done',steps:[{text:'旧步骤',done:true,note:'旧备注'}]});
+    check('演练：旧完成不伪造通过或演练方式',old.steps[0].result==='unverified' && old.steps[0].legacyDone && !old.mode);
+    const exported=window.WB.exporters.drillsToMarkdown();
+    check('演练：导出包含模式、问题、证据和整改编号',exported.includes('桌面推演') && exported.includes('发现问题') && exported.includes('记录1') && exported.includes('fix-task') && exported.includes('预打印'));
+  } finally {store.state=saved;}
 }
 
 console.log(`\n结构化活动工作台 · 离线自测`);

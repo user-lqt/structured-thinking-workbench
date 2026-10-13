@@ -773,6 +773,7 @@ window.WB.views = window.WB.views || {};
         </div>
       </header>
       ${deliveryControls(item.key, doc)}
+      ${doc?.knowledgeReferences ? `<details class="library-context"><summary>本次生成的知识引用 · ${escapeHtml(doc.knowledgeReferences.方式 || '')} · ${doc.knowledgeReferences.资料?.length || 0} 节</summary><p>这是生成时的资料快照，编辑正文或后续重排不会重新计算此记录。</p><pre>${escapeHtml(JSON.stringify(doc.knowledgeReferences, null, 2))}</pre></details>` : ''}
       ${sectionsOpen.has(item.key) ? sectionPanel(item.key) : ''}
       ${fillOpen.has(item.key) ? fillPanel(item.key) : ''}
       ${open && doc && !isPoster ? materialEditor(item.key, doc) : ''}
@@ -1430,42 +1431,59 @@ window.WB.views = window.WB.views || {};
     };
   }
 
+  const generatingKnowledge = new Set();
   async function generateOne(outputKey, { silent = false } = {}) {
-    if (outputKey === 'materialList') { window.WB.inventory.sync(state()); store().save(); return true; }
-    const current = state();
-    const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
-    if (!item || !current.project) return false;
-    const templateId = current.materialTemplates[outputKey];
-    const template = current.templates.find((entry) => entry.id === templateId);
-    const headings = chosenSections(outputKey);
-    if (!headings.length) { window.WB.toast('该产出还没有可用的章节模板'); return false; }
-    const data = await window.WB.ai.run(item.skill, materialInput(item, template), window.WB.ai.documentContract(headings, chosenForms(outputKey)), '/api/material');
-    if (!data || !Array.isArray(data.sections)) return false;
-    const sections = headings.map((heading, index) => {
-      const matched = data.sections.find((section) => U.text(section.heading) === heading) || data.sections[index];
-      return { heading, body: U.text(matched?.body) || '待补充' };
-    });
-    const previous = current.materials[outputKey];
-    current.materials[outputKey] = {
-      materialId: previous?.materialId || `MAT-${outputKey}`, deliveries: previous?.deliveries || [], aiDraft: true,
-      title: U.text(data.title) || `${current.project.basic.name || '未命名活动'}｜${item.label}`,
-      sections,
-      templateId: template?.id || '',
-      templateName: sectionSource(outputKey),
-      source: 'ai',
-      generatedAt: new Date().toISOString()
-    };
-    current.ui.openMaterial = outputKey;
-    store().log('material', `生成《${item.label}》`);
-    store().save();
-    if (!silent) {
-      render();
-      /* 重新生成会重排行序，旧发票的挂靠位置就失效了，直接说明比留着错位更好 */
-      const dropped = Object.values(previous?.invoices || {}).reduce((sum, list) => sum + list.length, 0);
-      if (dropped) window.WB.toast(`已重新生成《${item.label}》${sections.length} 章；原有 ${dropped} 张发票未保留，请重新挂`);
-      else window.WB.toast(`已生成《${item.label}》${sections.length} 章`);
-    }
-    return true;
+    if (!U.canOperate() || generatingKnowledge.size) return false;
+    const projectId = state().activeId;
+    generatingKnowledge.add(outputKey);
+    try {
+      if (outputKey === 'materialList') { window.WB.inventory.sync(state()); store().save(); return true; }
+      const current = state();
+      const project = current.project;
+      const item = OUTPUT_ITEMS.find((entry) => entry.key === outputKey);
+      if (!item || !current.project) return false;
+      const templateId = current.materialTemplates[outputKey];
+      const template = current.templates.find((entry) => entry.id === templateId);
+      const headings = chosenSections(outputKey);
+      if (!headings.length) { window.WB.toast('该产出还没有可用的章节模板'); return false; }
+      const input = materialInput(item, template);
+      input.知识库 = await window.WB.library.prepare(current.assets, { 产出: item.label, 章节: headings, 项目: current.project.basic },
+        selection => {
+          if (JSON.stringify(selection, null, 2).length > 39000) throw new Error('目录过长，请减少勾选的知识资料后重试。');
+          return window.WB.ai.run(item.skill, selection, '{"sectionIds":["从目录中选择的章节编号"]} 本次只选择目录编号，不生成材料正文。', '/api/material'); });
+      if (state().activeId !== projectId || state() !== current || current.project !== project || !U.canOperate()) return false;
+      if (JSON.stringify(input, null, 2).length > 39000) throw new Error('本次资料超过生成容量，请减少参考正文或知识引用后重试，避免内容被截断。');
+      const data = await window.WB.ai.run(item.skill, input, window.WB.ai.documentContract(headings, chosenForms(outputKey)), '/api/material');
+      if (state().activeId !== projectId || state() !== current || current.project !== project || !U.canOperate()) return false;
+      if (!data || !Array.isArray(data.sections)) return false;
+      const sections = headings.map((heading, index) => {
+        const matched = data.sections.find((section) => U.text(section.heading) === heading) || data.sections[index];
+        return { heading, body: U.text(matched?.body) || '待补充' };
+      });
+      const previous = current.materials[outputKey];
+      current.materials[outputKey] = {
+        materialId: previous?.materialId || `MAT-${outputKey}`, deliveries: previous?.deliveries || [], aiDraft: true,
+        title: U.text(data.title) || `${current.project.basic.name || '未命名活动'}｜${item.label}`,
+        sections,
+        knowledgeReferences: input.知识库,
+        templateId: template?.id || '',
+        templateName: sectionSource(outputKey),
+        source: 'ai',
+        generatedAt: new Date().toISOString()
+      };
+      current.ui.openMaterial = outputKey;
+      store().log('material', `生成《${item.label}》`);
+      store().save();
+      if (!silent) {
+        render();
+        /* 重新生成会重排行序，旧发票的挂靠位置就失效了，直接说明比留着错位更好 */
+        const dropped = Object.values(previous?.invoices || {}).reduce((sum, list) => sum + list.length, 0);
+        if (dropped) window.WB.toast(`已重新生成《${item.label}》${sections.length} 章；原有 ${dropped} 张发票未保留，请重新挂`);
+        else window.WB.toast(`已生成《${item.label}》${sections.length} 章`);
+      }
+      return true;
+    } catch (error) { window.WB.toast(error.message || '知识章节选择失败'); return false; }
+    finally { generatingKnowledge.delete(outputKey); }
   }
 
   /* ── 按参考重排（AI）：这一轮不做重新创作，只让 AI 把现有正文改写成与参考形式一致的成稿 ──
