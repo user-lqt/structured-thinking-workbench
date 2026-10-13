@@ -755,7 +755,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Demo2 listening at http://127.0.0.1:${port}/`);
+  console.log(`校园活动工作台 v1.0 listening at http://127.0.0.1:${port}/`);
   const lan = lanAddresses().map((item) => `http://${item.address}:${port}/signup.html  (${item.name})`);
   if (isLoopback(host)) {
     console.log('模式：仅本机（默认，别的设备连不上）。');

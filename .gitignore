@@ -25,3 +25,12 @@ temp/
 .DS_Store
 Thumbs.db
 workbench/demo/generated/
+
+# 私有备份与交付物编译缓存
+backups/
+output/
+deliverables/**/*.aux
+deliverables/**/*.out
+deliverables/**/*.synctex.gz
+deliverables/**/build/
+workbench/demo2/generated-before-restore-*/
